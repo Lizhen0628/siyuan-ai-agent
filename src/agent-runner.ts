@@ -6,51 +6,30 @@ import {Agent} from "@mariozechner/pi-agent-core";
 import type {AgentEvent, AgentMessage, AgentTool} from "@mariozechner/pi-agent-core";
 import type {Api, Model} from "@mariozechner/pi-ai";
 import {SiYuanClient} from "./siyuan-client";
+import {findCatalogModel} from "./provider-catalog";
 import {WRITE_TOOLS, createSiyuanTools} from "./tools";
 
+export type AgentApi = "openai-completions" | "openai-responses" | "anthropic-messages" | "google-generative-ai";
+
 export interface AgentPluginConfig {
+    /** pi 目录中的服务商 id,"custom" 表示自定义接口 */
+    provider: string;
     /** OpenAI 兼容等接口的 Base URL,如 https://api.example.com/v1 */
     baseURL: string;
     apiKey: string;
     /** 模型 id,如 glm-5.3-flash */
     modelId: string;
     /** pi 协议适配器 */
-    api: "openai-completions" | "openai-responses" | "anthropic-messages" | "google-generative-ai";
+    api: AgentApi;
     contextWindow: number;
     maxTokens: number;
     /** 写操作工具是否需要逐次确认 */
     confirmWrites: boolean;
+    /** 自定义系统提示词,留空使用默认 */
+    systemPrompt: string;
 }
 
-export const DEFAULT_CONFIG: AgentPluginConfig = {
-    baseURL: "https://api.openai.com/v1",
-    apiKey: "",
-    modelId: "",
-    api: "openai-completions",
-    contextWindow: 128000,
-    maxTokens: 8192,
-    confirmWrites: true,
-};
-
-export const STORAGE_CONFIG = "agent-config";
-export const STORAGE_SESSION = "agent-session";
-
-function buildModel(cfg: AgentPluginConfig): Model<Api> {
-    return {
-        id: cfg.modelId,
-        name: cfg.modelId,
-        api: cfg.api,
-        provider: "siyuan-agent",
-        baseUrl: cfg.baseURL.replace(/\/+$/, ""),
-        reasoning: false,
-        input: ["text"],
-        cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0},
-        contextWindow: cfg.contextWindow,
-        maxTokens: cfg.maxTokens,
-    };
-}
-
-const SYSTEM_PROMPT = `你是思源笔记中的智能体助手,可以借助工具对当前用户的笔记库进行检索、阅读和编辑。
+export const DEFAULT_SYSTEM_PROMPT = `你是思源笔记中的智能体助手,可以借助工具对当前用户的笔记库进行检索、阅读和编辑。
 
 工作准则:
 - 涉及笔记内容的问题,先用 search_notes 检索,再 read_note 阅读,不要凭空编造笔记内容。
@@ -58,10 +37,48 @@ const SYSTEM_PROMPT = `你是思源笔记中的智能体助手,可以借助工�
 - 引用笔记内容时注明来源路径(hpath)。
 - 回答使用简体中文,输出使用 Markdown;列表/标题层级清晰,不要输出嵌套代码块包裹的普通文本。`;
 
+export const DEFAULT_CONFIG: AgentPluginConfig = {
+    provider: "custom",
+    baseURL: "https://api.openai.com/v1",
+    apiKey: "",
+    modelId: "",
+    api: "openai-completions",
+    contextWindow: 128000,
+    maxTokens: 8192,
+    confirmWrites: true,
+    systemPrompt: DEFAULT_SYSTEM_PROMPT,
+};
+
+export const STORAGE_CONFIG = "agent-config";
+export const STORAGE_SESSION = "agent-session";
+
+/** 构造 pi 模型对象:命中 pi 目录时继承 cost/上下文等元数据,再以用户配置覆盖。 */
+export function buildModel(cfg: AgentPluginConfig): Model<Api> {
+    const catalog = findCatalogModel(cfg.provider, cfg.modelId);
+    return {
+        id: cfg.modelId,
+        name: catalog?.name ?? cfg.modelId,
+        api: cfg.api,
+        provider: cfg.provider === "custom" ? "siyuan-agent" : cfg.provider,
+        baseUrl: cfg.baseURL.trim().replace(/\/+$/, ""),
+        reasoning: catalog?.reasoning ?? false,
+        input: catalog?.input ?? ["text"],
+        cost: catalog?.cost ?? {input: 0, output: 0, cacheRead: 0, cacheWrite: 0},
+        contextWindow: cfg.contextWindow,
+        maxTokens: cfg.maxTokens,
+        ...(catalog?.thinkingLevelMap ? {thinkingLevelMap: catalog.thinkingLevelMap} : {}),
+    };
+}
+
 export class AgentRunner {
     private agent: Agent | null = null;
     private readonly client: SiYuanClient;
     private sessionRestored = false;
+
+    private systemPrompt(): string {
+        const custom = this.cfgProvider().systemPrompt?.trim();
+        return custom || DEFAULT_SYSTEM_PROMPT;
+    }
 
     constructor(
         private cfgProvider: () => AgentPluginConfig,
@@ -100,13 +117,13 @@ export class AgentRunner {
             const cfg = this.cfgProvider();
             this.agent.state.model = buildModel(cfg);
             this.agent.state.tools = this.buildTools();
-            this.agent.state.systemPrompt = SYSTEM_PROMPT;
+            this.agent.state.systemPrompt = this.systemPrompt();
             return this.agent;
         }
         const cfg = this.cfgProvider();
         this.agent = new Agent({
             initialState: {
-                systemPrompt: SYSTEM_PROMPT,
+                systemPrompt: this.systemPrompt(),
                 model: buildModel(cfg),
                 tools: this.buildTools(),
                 messages: this.pendingRestore ?? [],

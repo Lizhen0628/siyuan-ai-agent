@@ -177,3 +177,208 @@
         resize: none;
     }
 }
+
+/* ------------------------------------------------------------------ 设置面板 */
+.sy-agent-settings-mount {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.sy-agent-settings-wrap {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    flex: 1;
+    min-height: 0;
+}
+
+.sy-agent-settings {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+}
+
+.sy-agent-settings-nav {
+    width: 176px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--b3-border-color);
+    padding: 8px 0;
+    box-sizing: border-box;
+
+    .b3-list {
+        flex: 1;
+    }
+}
+
+.sy-agent-nav-item {
+    display: flex !important;
+    align-items: center;
+    gap: 8px;
+    border-radius: 4px;
+    margin: 0 8px;
+    padding: 8px 10px !important;
+    cursor: pointer;
+    user-select: none;
+}
+
+.sy-agent-nav-icon {
+    display: inline-flex;
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+
+    svg {
+        width: 100%;
+        height: 100%;
+    }
+}
+
+.sy-agent-status-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 18px;
+    font-size: 12px;
+    color: var(--b3-theme-on-surface);
+}
+
+.sy-agent-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--b3-theme-error);
+
+    &.sy-agent-dot--ok {
+        background: var(--b3-theme-primary);
+    }
+}
+
+.sy-agent-settings-body {
+    flex: 1;
+    min-width: 0;
+    overflow: auto;
+    padding: 4px 24px 32px 16px;
+    box-sizing: border-box;
+}
+
+.sy-agent-page {
+    display: flex;
+    flex-direction: column;
+
+    &.fn__none {
+        display: none;
+    }
+}
+
+.sy-agent-row {
+    padding: 14px 0;
+    border-bottom: 1px solid var(--b3-border-color);
+    gap: 12px;
+
+    &:last-of-type {
+        border-bottom: none;
+    }
+}
+
+.sy-agent-row-ctl {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    align-self: flex-start;
+    padding-top: 2px;
+}
+
+.sy-agent-hint {
+    margin-top: 4px;
+    line-height: 1.5;
+}
+
+.sy-agent-warn {
+    color: var(--b3-card-warning-color, #d97706);
+}
+
+.sy-agent-model-select {
+    max-width: 340px;
+    min-width: 200px;
+}
+
+.sy-agent-icon-btn {
+    padding: 4px 8px !important;
+}
+
+.sy-agent-test {
+    padding: 14px 0;
+}
+
+.sy-agent-test-btns {
+    display: flex;
+    gap: 8px;
+}
+
+.sy-agent-result {
+    margin-top: 10px;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 13px;
+    line-height: 1.5;
+
+    &.sy-agent-result--ok {
+        background: var(--b3-theme-primary-lightest);
+    }
+
+    &.sy-agent-result--err {
+        background: var(--b3-theme-error-lighter, rgba(255, 0, 0, 0.08));
+    }
+}
+
+.sy-agent-result-details {
+    margin: 6px 0 0;
+    padding: 6px 8px;
+    border-radius: 4px;
+    background: var(--b3-theme-on-primary-light);
+    font-size: 12px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    max-height: 160px;
+    overflow: auto;
+}
+
+.sy-agent-prompt {
+    margin-top: 8px;
+    font-family: var(--b3-font-family-code);
+    font-size: 12px;
+    line-height: 1.6;
+    resize: vertical;
+    min-height: 180px;
+}
+
+.sy-agent-about {
+    padding: 12px 0;
+}
+
+.sy-agent-about-row {
+    display: flex;
+    gap: 16px;
+    padding: 6px 0;
+    font-size: 13px;
+
+    .sy-agent-about-key {
+        width: 90px;
+        flex-shrink: 0;
+        color: var(--b3-theme-on-surface);
+    }
+}
+
+.sy-agent-settings-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 24px;
+    border-top: 1px solid var(--b3-border-color);
+    flex-shrink: 0;
+}
+

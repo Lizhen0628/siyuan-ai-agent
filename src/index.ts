@@ -4,12 +4,13 @@
  * pi 的 Agent 循环运行在插件侧(渲染进程),思源内核 REST API 被包装为工具;
  * 与思源内置智能体相互独立。
  */
-import {confirm, Dialog, Plugin, Setting, showMessage} from "siyuan";
+import {confirm, Dialog, Plugin, showMessage} from "siyuan";
 import "./index.css";
 import {AgentRunner, DEFAULT_CONFIG, STORAGE_CONFIG, STORAGE_SESSION} from "./agent-runner";
 import type {AgentPluginConfig} from "./agent-runner";
 import type {AgentMessage} from "@mariozechner/pi-agent-core";
 import {ChatPanel} from "./chat-panel";
+import {SettingsDialog} from "./settings-dialog";
 
 const DIALOG_CLASS = "sy-agent-dialog";
 
@@ -140,88 +141,18 @@ export default class SiyuanAgentPlugin extends Plugin {
     }
 
     override openSetting(): void {
-        // 直接闭包捕获输入元素,保存时读取(Setting 类型不暴露 element)
-        const els: Record<string, HTMLInputElement | HTMLSelectElement> = {};
-        const input = (id: string, value: string, type = "text"): HTMLInputElement => {
-            const el = document.createElement("input");
-            el.className = "b3-text-field fn__block";
-            el.type = type;
-            el.value = value;
-            els[id] = el;
-            return el;
-        };
-
-        const setting = new Setting({
-            width: "640px",
-            confirmCallback: () => {
-                this.config = {
-                    baseURL: els.baseURL.value.trim(),
-                    apiKey: els.apiKey.value.trim(),
-                    modelId: els.modelId.value.trim(),
-                    api: els.api.value as AgentPluginConfig["api"],
-                    contextWindow: Number(els.context.value) || DEFAULT_CONFIG.contextWindow,
-                    maxTokens: Number(els.maxTokens.value) || DEFAULT_CONFIG.maxTokens,
-                    confirmWrites: (els.confirm as HTMLInputElement).checked,
-                };
-                void this.saveData(STORAGE_CONFIG, this.config);
-                showMessage("已保存,SiYuan Agent 将使用新配置", 3000);
+        const dialog = new SettingsDialog({
+            getConfig: () => this.config,
+            onSave: (cfg) => {
+                this.config = cfg;
+                void this.saveData(STORAGE_CONFIG, cfg);
             },
-        });
-
-        setting.addItem({
-            title: "接口地址 (Base URL)",
-            description: "OpenAI 兼容接口地址,一般以 /v1 结尾",
-            createActionElement: () => input("baseURL", this.config.baseURL),
-        });
-        setting.addItem({
-            title: "API Key",
-            description: "模型服务密钥,明文保存在本地工作空间中",
-            createActionElement: () => input("apiKey", this.config.apiKey, "password"),
-        });
-        setting.addItem({
-            title: "模型 ID",
-            description: "如 gpt-4o、glm-5.3-flash、claude-sonnet-4 等",
-            createActionElement: () => input("modelId", this.config.modelId),
-        });
-        setting.addItem({
-            title: "接口协议",
-            description: "OpenAI 兼容选 openai-completions;Anthropic 选 anthropic-messages;Google 选 google-generative-ai",
-            createActionElement: () => {
-                const el = document.createElement("select");
-                el.className = "b3-select fn__block";
-                for (const api of ["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"]) {
-                    const opt = document.createElement("option");
-                    opt.value = api;
-                    opt.textContent = api;
-                    opt.selected = api === this.config.api;
-                    el.appendChild(opt);
-                }
-                els.api = el;
-                return el;
+            onClearSession: async () => {
+                this.runner.reset();
+                await this.persistSession();
             },
+            sessionMessageCount: () => this.runner.messages.length,
         });
-        setting.addItem({
-            title: "上下文窗口 (tokens)",
-            description: "模型上下文长度,仅用于本地估算",
-            createActionElement: () => input("context", String(this.config.contextWindow), "number"),
-        });
-        setting.addItem({
-            title: "最大输出 tokens",
-            createActionElement: () => input("maxTokens", String(this.config.maxTokens), "number"),
-        });
-        setting.addItem({
-            title: "写操作需要确认",
-            description: "创建/更新/插入/删除笔记前弹窗确认",
-            createActionElement: () => {
-                const el = document.createElement("input");
-                el.type = "checkbox";
-                el.classList.add("b3-switch");
-                el.checked = this.config.confirmWrites;
-                els.confirm = el;
-                return el;
-            },
-        });
-        this.setting = setting;
-        setting.open(this.name);
+        dialog.open();
     }
 }
