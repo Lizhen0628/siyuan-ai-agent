@@ -1,0 +1,6 @@
+{
+  "needConfig": "Please configure the API endpoint, key and model in plugin settings first",
+  "newSession": "New session",
+  "send": "Send",
+  "stop": "Stop"
+}

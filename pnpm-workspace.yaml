@@ -1,0 +1,10 @@
+packages:
+  - .
+
+allowBuilds:
+  '0': esbuild
+  '1': protobufjs
+  '2': '@google/genai'
+  '@google/genai': set this to true or false
+  esbuild: set this to true or false
+  protobufjs: set this to true or false

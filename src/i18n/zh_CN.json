@@ -1,0 +1,6 @@
+{
+  "needConfig": "请先在插件设置中配置接口地址、API Key 和模型",
+  "newSession": "新会话",
+  "send": "发送",
+  "stop": "停止"
+}
