@@ -1,6 +1,6 @@
 {
   "name": "siyuan-agent",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "SiYuan agent plugin powered by pi (@mariozechner/pi-ai + @mariozechner/pi-agent-core)",
   "main": "index.js",
   "scripts": {

@@ -2,7 +2,7 @@
   "name": "siyuan-agent",
   "author": "lizhen",
   "url": "https://github.com/Lizhen0628/siyuan-agent",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "minAppVersion": "3.8.3",
   "backends": ["all"],
   "frontends": ["desktop", "desktop-window", "browser-desktop"],

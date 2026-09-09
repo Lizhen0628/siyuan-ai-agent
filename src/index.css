@@ -1,21 +1,84 @@
-.sy-agent-root {
+/* ---------------------------------------------------------------- 对话侧边栏 */
+.sy-agent-root.sy-chat {
     display: flex;
     flex-direction: column;
     height: 100%;
-    gap: 8px;
-    padding: 12px;
+    width: 100%;
     box-sizing: border-box;
+    overflow: hidden;
 }
 
-.sy-agent-toolbar {
+.sy-chat-header {
     display: flex;
     align-items: center;
     gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--b3-border-color);
+    flex-shrink: 0;
 }
 
-.sy-agent-status {
+.sy-chat-logo {
+    display: inline-flex;
+    width: 26px;
+    height: 26px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: var(--b3-theme-primary-lightest);
     color: var(--b3-theme-primary);
-    font-size: 12px;
+    flex-shrink: 0;
+
+    svg {
+        width: 15px;
+        height: 15px;
+    }
+}
+
+.sy-chat-titlegroup {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.sy-chat-title {
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+.sy-chat-model {
+    font-size: 11px;
+    color: var(--b3-theme-on-surface);
+    font-family: var(--b3-font-family-code);
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    &.unconfigured {
+        color: var(--b3-theme-error);
+    }
+}
+
+.sy-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0 !important;
+    border-radius: 4px;
+    color: var(--b3-theme-on-surface);
+
+    svg {
+        width: 15px;
+        height: 15px;
+    }
+
+    &:hover {
+        background: var(--b3-list-hover);
+        color: var(--b3-theme-on-background);
+    }
 }
 
 .sy-agent-messages {
@@ -23,22 +86,30 @@
     overflow: auto;
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    padding: 4px 2px;
-    border-top: 1px solid var(--b3-border-color);
-    border-bottom: 1px solid var(--b3-border-color);
+    gap: 14px;
+    padding: 14px 12px;
 }
 
 .sy-agent-msg {
     display: flex;
     flex-direction: column;
 
+    .sy-msg-group {
+        display: flex;
+        flex-direction: column;
+        max-width: 92%;
+    }
+
     &.user {
         align-items: flex-end;
 
+        .sy-msg-group {
+            align-items: flex-end;
+        }
+
         .bubble {
             background: var(--b3-theme-primary-lightest);
-            border-radius: 8px 8px 2px 8px;
+            border-radius: 12px 12px 4px 12px;
         }
     }
 
@@ -47,15 +118,19 @@
 
         .bubble {
             background: var(--b3-list-hover);
-            border-radius: 8px 8px 8px 2px;
+            border-radius: 12px 12px 12px 4px;
         }
     }
 
-    .bubble {
+    &.tool {
         max-width: 92%;
+        width: 100%;
+    }
+
+    .bubble {
         padding: 8px 12px;
         line-height: 1.6;
-        font-size: 14px;
+        font-size: 13px;
         overflow-wrap: anywhere;
 
         p {
@@ -65,7 +140,7 @@
         pre {
             overflow: auto;
             padding: 8px;
-            border-radius: 4px;
+            border-radius: 6px;
             background: var(--b3-theme-on-primary-light);
             font-size: 12px;
         }
@@ -86,6 +161,9 @@
         table {
             border-collapse: collapse;
             margin: 6px 0;
+            display: block;
+            max-width: 100%;
+            overflow-x: auto;
 
             th,
             td {
@@ -103,14 +181,148 @@
     }
 }
 
+/* 悬停显示的消息操作(复制) */
+.sy-msg-actions {
+    display: flex;
+    gap: 4px;
+    padding: 2px 2px 0;
+    opacity: 0;
+    transition: opacity 0.12s ease;
+
+    &.right {
+        justify-content: flex-end;
+    }
+}
+
+.sy-agent-msg:hover .sy-msg-actions {
+    opacity: 1;
+}
+
+.sy-msg-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    border: none;
+    background: transparent;
+    color: var(--b3-theme-on-surface);
+    cursor: pointer;
+
+    svg {
+        width: 13px;
+        height: 13px;
+    }
+
+    &:hover {
+        background: var(--b3-list-hover);
+        color: var(--b3-theme-on-background);
+    }
+}
+
+/* 空状态 */
+.sy-agent-empty {
+    margin: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 32px 12px;
+    text-align: center;
+}
+
+.sy-agent-empty-logo {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: var(--b3-theme-primary-lightest);
+    color: var(--b3-theme-primary);
+    margin-bottom: 4px;
+
+    svg {
+        width: 24px;
+        height: 24px;
+    }
+}
+
+.sy-agent-empty-title {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.sy-agent-empty-sub {
+    font-size: 12px;
+    color: var(--b3-theme-on-surface);
+    line-height: 1.5;
+}
+
+.sy-agent-empty-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+    margin-top: 10px;
+}
+
+.sy-agent-chip {
+    border: 1px solid var(--b3-border-color);
+    background: var(--b3-theme-surface);
+    color: var(--b3-theme-on-background);
+    border-radius: 999px;
+    padding: 5px 12px;
+    font-size: 12px;
+    cursor: pointer;
+
+    &:hover {
+        border-color: var(--b3-theme-primary);
+        color: var(--b3-theme-primary);
+        background: var(--b3-theme-primary-lightest);
+    }
+}
+
+/* 生成中等待动画 */
+.sy-agent-waiting {
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+    padding: 10px 14px;
+
+    .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--b3-theme-on-surface);
+        animation: sy-agent-blink 1.2s infinite ease-in-out;
+
+        &:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        &:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+    }
+}
+
+@keyframes sy-agent-blink {
+    0%, 80%, 100% { opacity: 0.25; }
+    40% { opacity: 1; }
+}
+
 .sy-agent-tool-call {
     font-size: 12px;
     color: var(--b3-theme-on-surface);
     background: var(--b3-list-hover);
-    border-radius: 6px;
+    border: 1px solid var(--b3-border-color);
+    border-radius: 8px;
     padding: 4px 8px;
-    margin: 2px 0;
-    max-width: 92%;
+    margin: 4px 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
 }
 
 .sy-agent-thinking {
@@ -135,7 +347,7 @@
 
 .sy-agent-tool-result {
     font-size: 12px;
-    max-width: 92%;
+    max-width: 100%;
 
     summary {
         cursor: pointer;
@@ -144,7 +356,7 @@
     }
 
     pre {
-        max-height: 240px;
+        max-height: 200px;
         overflow: auto;
         background: var(--b3-theme-on-primary-light);
         padding: 8px;
@@ -164,10 +376,17 @@
     border-radius: 6px;
     padding: 6px 10px;
     font-size: 12px;
-    margin-bottom: 6px;
+    margin: 0 12px 8px;
 }
 
-.sy-agent-input-row {
+/* 底部输入区 */
+.sy-chat-footer {
+    border-top: 1px solid var(--b3-border-color);
+    padding: 10px 12px 8px;
+    flex-shrink: 0;
+}
+
+.sy-chat-inputwrap {
     display: flex;
     gap: 8px;
     align-items: flex-end;
@@ -175,7 +394,48 @@
     .sy-agent-input {
         flex: 1;
         resize: none;
+        min-height: 34px;
+        max-height: 140px;
+        line-height: 1.5;
+        padding: 7px 10px;
     }
+}
+
+.sy-chat-send {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    border: none;
+    background: var(--b3-theme-primary);
+    color: var(--b3-theme-on-primary);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: opacity 0.12s ease;
+
+    svg {
+        width: 15px;
+        height: 15px;
+    }
+
+    &:disabled {
+        opacity: 0.4;
+        cursor: default;
+    }
+
+    &.stopping {
+        background: var(--b3-theme-error);
+        color: var(--b3-theme-on-error);
+    }
+}
+
+.sy-chat-hint {
+    font-size: 11px;
+    color: var(--b3-theme-on-surface);
+    padding: 6px 2px 0;
+    opacity: 0.75;
 }
 
 /* ------------------------------------------------------------------ 设置面板 */

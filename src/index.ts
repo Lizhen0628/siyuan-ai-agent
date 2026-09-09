@@ -2,9 +2,10 @@
  * SiYuan Agent (pi) —— 以 pi(pi-ai + pi-agent-core)为智能体引擎的思源笔记插件。
  *
  * pi 的 Agent 循环运行在插件侧(渲染进程),思源内核 REST API 被包装为工具;
+ * 对话窗口挂载在右侧 Dock 侧边栏(参考思源内置智能体与 obsidian-copilot),
  * 与思源内置智能体相互独立。
  */
-import {confirm, Dialog, Plugin, showMessage} from "siyuan";
+import {confirm, Plugin, showMessage} from "siyuan";
 import "./index.css";
 import {AgentRunner, DEFAULT_CONFIG, STORAGE_CONFIG, STORAGE_SESSION} from "./agent-runner";
 import type {AgentPluginConfig} from "./agent-runner";
@@ -12,12 +13,16 @@ import type {AgentMessage} from "@mariozechner/pi-agent-core";
 import {ChatPanel} from "./chat-panel";
 import {SettingsDialog} from "./settings-dialog";
 
-const DIALOG_CLASS = "sy-agent-dialog";
+/** Dock 注册 id,也是 rightDock.toggleModel 使用的类型。 */
+const DOCK_ID = "siyuan-agent-chat";
+
+const ROBOT_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/></svg>`;
+/** addIcons 需要 <symbol> 包裹的图形,复用顶栏图标的内部图形。 */
+const ROBOT_SYMBOL = `<symbol id="iconSiyuanAgent" viewBox="0 0 24 24">${ROBOT_SVG.replace(/<\/?svg[^>]*>/g, "")}</symbol>`;
 
 export default class SiyuanAgentPlugin extends Plugin {
     private config: AgentPluginConfig = {...DEFAULT_CONFIG};
     private runner!: AgentRunner;
-    private dialog: Dialog | null = null;
     private panel: ChatPanel | null = null;
     private sending = false;
 
@@ -42,10 +47,12 @@ export default class SiyuanAgentPlugin extends Plugin {
         );
 
         this.addTopBar({
-            icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/></svg>`,
+            icon: ROBOT_SVG,
             title: "SiYuan Agent (pi)",
             callback: () => this.openChat(),
         });
+
+        this.registerChatDock();
 
         // 会话恢复:下次 ensureAgent 时注入
         try {
@@ -60,8 +67,69 @@ export default class SiyuanAgentPlugin extends Plugin {
     }
 
     override onunload(): void {
-        this.dialog?.destroy();
-        this.dialog = null;
+        this.panel?.destroy();
+        this.panel = null;
+    }
+
+    /** 对话窗口注册为右侧 Dock 页签,布局随思源工作区持久化。 */
+    private registerChatDock(): void {
+        this.addIcons(ROBOT_SYMBOL);
+        this.addDock({
+            id: DOCK_ID,
+            type: DOCK_ID,
+            config: {
+                position: "RightTop",
+                size: {width: 400, height: 0},
+                icon: "iconSiyuanAgent",
+                hotkey: "⌥⇧A",
+                title: "SiYuan Agent",
+                show: false,
+            },
+            data: {},
+            init: (custom) => {
+                const el = custom.element as HTMLElement;
+                this.panel = new ChatPanel(el, this.runner, {
+                    onSend: (textValue) => void this.send(textValue),
+                    onStop: () => this.runner.stop(),
+                    onNewSession: () => {
+                        this.runner.reset();
+                        void this.persistSession();
+                        this.panel?.requestRender();
+                    },
+                    onOpenSettings: () => this.openSetting(),
+                    getState: () => ({
+                        modelId: this.config.modelId,
+                        configured: Boolean(this.config.apiKey && this.config.modelId),
+                    }),
+                });
+            },
+            destroy: () => {
+                this.panel?.destroy();
+                this.panel = null;
+            },
+            resize: () => {
+                this.panel?.requestRender();
+            },
+        });
+    }
+
+    /** 打开(或聚焦)右侧侧边栏对话面板;已在前台时再点收起。 */
+    openChat(): void {
+        const dock = (window as any).siyuan?.layout?.rightDock;
+        if (!dock) {
+            showMessage("未找到右侧 Dock,请尝试重置布局", 4000, "error");
+            return;
+        }
+        if (!this.config.apiKey || !this.config.modelId) {
+            showMessage(this.i18n["needConfig"] || "请先在插件设置中配置接口地址、API Key 和模型", 5000, "error");
+            this.openSetting();
+            return;
+        }
+        // 思源将插件 dock 的类型生成为 `${pluginName}${dockId}`
+        const dockType = `${this.name}${DOCK_ID}`;
+        const item = document.querySelector(`#dockRight [data-type="${dockType}"]`);
+        const visible = item?.classList.contains("dock__item--active");
+        dock.toggleModel(dockType, !visible, visible);
     }
 
     private async persistSession(): Promise<void> {
@@ -73,13 +141,14 @@ export default class SiyuanAgentPlugin extends Plugin {
     }
 
     private confirmWrite(toolName: string, label: string, args: unknown): Promise<boolean> {
-        return new Promise((resolve) => {
-            let detail = "";
+        const detail = (() => {
             try {
-                detail = JSON.stringify(args, null, 1);
+                return JSON.stringify(args, null, 1);
             } catch {
-                detail = String(args);
+                return String(args);
             }
+        })();
+        return new Promise<boolean>((resolve) => {
             confirm(
                 "SiYuan Agent (pi)",
                 `智能体请求执行写操作「${label}」(${toolName}),是否允许?\n\n<code class="fn__code">${detail
@@ -87,39 +156,6 @@ export default class SiyuanAgentPlugin extends Plugin {
                 () => resolve(true),
                 () => resolve(false),
             );
-        });
-    }
-
-    openChat(): void {
-        if (this.dialog) {
-            this.dialog.element.classList.remove("fn__none");
-            return;
-        }
-        if (!this.config.apiKey || !this.config.modelId) {
-            showMessage(this.i18n["needConfig"] || "请先在插件设置中配置接口地址、API Key 和模型", 5000, "error");
-            this.openSetting();
-            return;
-        }
-        this.dialog = new Dialog({
-            title: "SiYuan Agent (pi)",
-            content: `<div class="sy-agent-root"></div>`,
-            width: "760px",
-            height: "82vh",
-            destroyCallback: () => {
-                this.dialog = null;
-                this.panel = null;
-            },
-        });
-        this.dialog.element.classList.add(DIALOG_CLASS);
-        const root = this.dialog.element.querySelector(".sy-agent-root") as HTMLElement;
-        this.panel = new ChatPanel(root, this.runner, {
-            onSend: (textValue) => this.send(textValue),
-            onStop: () => this.runner.stop(),
-            onNewSession: () => {
-                this.runner.reset();
-                void this.persistSession();
-                this.panel?.requestRender();
-            },
         });
     }
 
