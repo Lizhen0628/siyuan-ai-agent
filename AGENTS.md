@@ -3,12 +3,11 @@
 ## 工作流
 
 - **每次更新代码后，自动部署到本地笔记本供用户验收**，无需询问：
-  ```bash
-  npm run build && rsync -av --delete dist/ "$HOME/SiYuanKnowledgeBase/data/plugins/siyuan-ai-agent/"
-  ```
-  (即 package.json 中的 `deploy:local`;$SIYUAN_WORKSPACE 未设置时不要跑 `deploy`)
+  - 开发目录 `dist/` 已软链到插件目录 `~/SiYuanKnowledgeBase/data/plugins/siyuan-ai-agent`（原目录备份为 `siyuan-ai-agent.bak`），构建即部署，无需 rsync。
+  - 持续开发跑 `pnpm dev`（webpack watch 模式），保存即自动重建。
+  - 生产构建跑 `pnpm run build`。
 - 部署前确保 `npx tsc --noEmit` 通过。
-- 部署后提醒用户：在思源中重载界面(Ctrl/Cmd+R)或重开插件即可验收。
+- 部署后提醒用户验收方式（无需重启思源）：**设置 → 集市 → 已下载 → 关闭再开启本插件开关**（真正重载插件代码），或 Cmd+Shift+R 强制刷新界面。
 
 ## 技术要点
 

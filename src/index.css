@@ -594,6 +594,21 @@ summary.sy-agent-tool-head,
 }
 
 /* 输入框右侧的会话统计(缓存命中率/输入输出字数) */
+/* 上下文用量圆环旁的文字统计:缓存命中率 + 累计输入/输出 tokens */
+.sy-chat-stats {
+    font-size: 11px;
+    color: var(--b3-theme-on-surface-light);
+    white-space: nowrap;
+    flex-shrink: 0;
+    align-self: center;
+    margin-right: 2px;
+    cursor: default;
+
+    &.fn__none {
+        display: none;
+    }
+}
+
 /* 上下文用量圆环(对齐原生 agent-chat__tokens:轨道灰圈 + 主色弧,hover 弹出明细) */
 .sy-chat-tokens {
     width: 24px;
@@ -637,9 +652,11 @@ summary.sy-agent-tool-head,
 }
 
 /* 上下文用量明细浮层(对齐原生 agent-token-popup) */
+/* 宽度自适应内容,避免右侧留白;定位由 TS 测量实际尺寸后计算 */
 .sy-token-popup {
     position: fixed;
-    width: 280px;
+    width: auto;
+    min-width: 0;
     padding: 8px 0;
 
     .b3-menu__items {
@@ -648,64 +665,102 @@ summary.sy-agent-tool-head,
     }
 }
 
-.sy-token-popup__total {
+/* 浮层头部卡片:大甜甜圈 + 用量大数字 */
+.sy-token-popup__hero {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 4px 14px;
+    gap: 12px;
+    padding: 8px 14px;
+}
+
+/* 左侧列:甜甜圈 + 下方用量数字(与右侧明细同字体大小) */
+.sy-token-popup__left {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.sy-token-popup__donut {
+    position: relative;
+    width: 56px;
+    height: 56px;
+    flex-shrink: 0;
+
+    svg {
+        width: 56px;
+        height: 56px;
+        display: block;
+    }
+}
+
+.sy-token-popup__donut-track {
+    fill: none;
+    stroke: var(--b3-scroll-color);
+    stroke-width: 3.2;
+}
+
+.sy-token-popup__donut-arc {
+    fill: none;
+    stroke: var(--b3-theme-primary);
+    stroke-width: 3.2;
+    stroke-linecap: round;
+    transform: rotate(-90deg);
+    transform-origin: 50% 50%;
+    transition: stroke-dasharray 0.2s ease;
+}
+
+.sy-token-popup__donut-text {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
     font-weight: 600;
     color: var(--b3-theme-on-background);
 }
 
-.sy-token-popup__row {
+.sy-token-popup__donut-value {
+    font-size: 12px;
+    color: var(--b3-theme-on-surface-light);
+    white-space: nowrap;
+}
+
+.sy-token-popup__meta {
+    min-width: 0;
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 3px 14px;
-    font-size: 13px;
-    color: var(--b3-theme-on-surface);
+    flex-direction: column;
+    gap: 2px;
 }
 
-.sy-token-popup__label {
-    flex-shrink: 0;
-}
-
-.sy-token-popup__value {
-    margin-left: 12px;
-    flex-shrink: 0;
+.sy-token-popup__meta-label {
+    font-size: 12px;
     color: var(--b3-theme-on-surface-light);
 }
 
-.sy-token-popup__divider {
-    height: 1px;
-    margin: 4px 10px;
-    background: var(--b3-border-color);
+.sy-token-popup__meta-sub {
+    font-size: 12px;
+    color: var(--b3-theme-on-surface-light);
+    white-space: nowrap;
 }
 
-.sy-token-popup__bar {
-    height: 4px;
-    margin: 6px 10px 4px;
-    border-radius: 2px;
-    background: var(--b3-border-color);
-    overflow: hidden;
-
-    > span {
-        display: block;
-        height: 100%;
-        border-radius: 2px;
-        background: var(--b3-theme-primary);
-    }
-}
-
-/* 窄面板适配:对话框宽度不足时,隐藏图标旁的文字标签(思考强度/模型名),只留图标 */
+/* 窄面板适配:对话框宽度不足时,隐藏图标旁的文字标签(思考强度/模型名/统计),只留图标 */
 @container (max-width: 300px) {
     .sy-chat-thinking-label,
-    .sy-chat-model-label {
+    .sy-chat-model-label,
+    .sy-chat-stats {
         display: none;
     }
 }
 
 /* 思考徽标关闭态弱化 / 图片按钮在不支持图片的模型下置灰 */
+/* 思考强度按钮:热力色由 JS 按档位写入内联 color;Off 档保持灰暗 */
+.sy-chat-thinking {
+    transition: color 0.15s ease;
+}
+
 .sy-chat-thinking.unconfigured .sy-chat-thinking-label {
     color: var(--b3-theme-on-surface-light);
 }
@@ -1099,6 +1154,63 @@ summary.sy-agent-tool-head,
     padding: 4px;
     overflow: auto;
     font-size: 13px;
+}
+
+/* 思考强度菜单:原生 b3-menu 容器 + b3-slider 滑块,仅补定位与内部排版;
+   热力色 --sy-think-color 随档位从主色渐变到警示红(轨道淡化、滑块头/当前值纯色) */
+.sy-agent-thinking-menu {
+    position: fixed;
+    padding: 2px 0;
+}
+
+.sy-agent-thinking-menu-body {
+    box-sizing: border-box;
+    width: 200px;
+    padding: 2px 12px 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.sy-agent-thinking-menu-value {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--sy-think-color, var(--b3-theme-primary));
+    text-align: center;
+    transition: color 0.15s ease;
+}
+
+.sy-agent-thinking-menu-slider {
+    width: 100%;
+    margin: 0;
+
+    &::-webkit-slider-runnable-track {
+        background-color: color-mix(in srgb, var(--sy-think-color, var(--b3-theme-primary)) 35%, transparent);
+        transition: background-color 0.15s ease;
+    }
+
+    &::-webkit-slider-thumb {
+        background-color: var(--sy-think-color, var(--b3-theme-primary));
+        transition: background-color 0.15s ease;
+    }
+
+    &::-moz-range-track {
+        background-color: color-mix(in srgb, var(--sy-think-color, var(--b3-theme-primary)) 35%, transparent);
+        transition: background-color 0.15s ease;
+    }
+
+    &::-moz-range-thumb {
+        background-color: var(--sy-think-color, var(--b3-theme-primary));
+        transition: background-color 0.15s ease;
+    }
+}
+
+.sy-agent-thinking-menu-ends {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--b3-theme-on-surface-light);
+    user-select: none;
 }
 
 .sy-agent-combo-label {

@@ -165,7 +165,9 @@ export function modelCapabilities(cfg: AgentPluginConfig): {
         return true;
     });
     return {
-        reasoning: catalog?.reasoning ?? false,
+        // 未知(自定义)模型默认放行思考,由服务商自行兜底(与图片输入策略一致);
+        // 否则自定义服务商模型会被双重门控(本插件 + pi-ai)永久锁死思考参数
+        reasoning: catalog?.reasoning ?? true,
         // 未知(自定义)模型默认放行图片,由服务商自行兜底
         image: catalog ? catalog.input.includes("image") : true,
         thinkingLevels: levels,
@@ -182,7 +184,8 @@ export function buildModel(cfg: AgentPluginConfig): Model<Api> {
         api: cfg.api,
         provider: cfg.provider === "custom" ? "siyuan-agent" : cfg.provider,
         baseUrl: cfg.baseURL.trim().replace(/\/+$/, ""),
-        reasoning: catalog?.reasoning ?? false,
+        // 未知(自定义)模型默认放行思考,由服务商自行兜底;详见 modelCapabilities
+        reasoning: catalog?.reasoning ?? true,
         // 未知(自定义)模型默认放行图片,与 modelCapabilities 一致;
         // 否则 pi-ai 的 transformMessages 会把图片块降级成 "(image omitted: model does not support images)" 占位文本
         input: catalog?.input ?? ["text", "image"],
@@ -252,11 +255,22 @@ export class AgentRunner {
         }
     }
 
+    /** 调试:在控制台打印本轮请求实际携带的思考参数,便于验证思考强度是否生效。 */
+    private attachPayloadDebug(agent: Agent, thinking: ThinkingLevel): void {
+        agent.onPayload = (payload: unknown) => {
+            const p = payload as Record<string, unknown>;
+            const sent = p.reasoning_effort ?? (p.thinking as {type?: string} | undefined)?.type
+                ?? (p.reasoning as {effort?: string} | undefined)?.effort ?? "(none)";
+            console.debug(`[siyuan-ai-agent] thinking=${thinking}, wire param=`, sent);
+        };
+    }
+
     /** 创建(或按需恢复)智能体实例。 */
     private ensureAgent(): Agent {
         const cfg = this.cfgProvider();
         const model = buildModel(cfg);
-        // 仅对支持推理的模型下发思考等级,避免不支持的接口报错
+        // 仅对支持推理的模型下发思考等级,避免不支持的接口报错;
+        // 未知(自定义)模型 buildModel 已默认放行,由服务商自行兜底
         // pi-agent-core 0.73 的类型不含 max,这里按字符串透传,由服务商端自行处理
         const thinking = (model.reasoning ? (cfg.thinkingLevel ?? "off") : "off") as ThinkingLevel;
         if (this.agent) {
@@ -265,6 +279,7 @@ export class AgentRunner {
             this.agent.state.thinkingLevel = thinking;
             this.agent.state.tools = this.buildTools();
             this.agent.state.systemPrompt = this.systemPrompt();
+            this.attachPayloadDebug(this.agent, thinking);
             return this.agent;
         }
         this.agent = new Agent({
@@ -302,6 +317,7 @@ export class AgentRunner {
                 this.onSessionChange();
             }
         });
+        this.attachPayloadDebug(this.agent, thinking);
         // 恢复后清空暂存,避免重复
         this.pendingRestore = undefined;
         this.sessionRestored = true;

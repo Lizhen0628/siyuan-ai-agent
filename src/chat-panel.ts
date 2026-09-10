@@ -27,13 +27,13 @@ const QUICK_PROMPTS = [
     "我的工具笔记本里有什么?",
 ];
 
-/** 紧凑数字:1234 → 1.2k,56000 → 5.6万。 */
+/** 紧凑数字(K/M 单位):1234 → 1.2K,128000 → 128K,1200000 → 1.2M。 */
 function compactNum(n: number): string {
-    if (n >= 10000) {
-        return `${(n / 10000).toFixed(1).replace(/\.0$/, "")}万`;
+    if (n >= 1000000) {
+        return `${(n / 1000000).toFixed(1).replace(/\.0$/, "")}M`;
     }
     if (n >= 1000) {
-        return `${(n / 1000).toFixed(1).replace(/\.0$/, "")}k`;
+        return `${(n / 1000).toFixed(1).replace(/\.0$/, "")}K`;
     }
     return String(n);
 }
@@ -297,15 +297,15 @@ interface PendingImage {
     name: string;
 }
 
-/** 思考等级的中文标签。 */
+/** 思考等级按钮标签(首字母大写)。 */
 const THINKING_LABELS: Record<string, string> = {
-    off: "关",
-    minimal: "最小",
-    low: "低",
-    medium: "中",
-    high: "高",
-    xhigh: "超高",
-    max: "最大",
+    off: "Off",
+    minimal: "Minimal",
+    low: "Low",
+    medium: "Medium",
+    high: "High",
+    xhigh: "Xhigh",
+    max: "Max",
 };
 
 export interface ChatPanelCallbacks {
@@ -347,12 +347,17 @@ export class ChatPanel {
     private readonly modelLabelEl: HTMLElement;
     /** 上下文用量圆环(对齐原生 agent-chat__tokens)。 */
     private readonly tokensEl: HTMLElement;
+    /** 圆环旁的文字统计:缓存命中率 + 累计输入/输出 tokens。 */
+    private readonly statsEl: HTMLElement;
     /** 上下文用量明细浮层与定时器(对齐原生 agent-token-popup)。 */
     private tokenPopup: HTMLElement | null = null;
     private tokenPopupShowTimer = 0;
     private tokenPopupHideTimer = 0;
     private tokenPopupOutsideClickHandler: (() => void) | null = null;
     private tokenPopupResizeHandler: (() => void) | null = null;
+    /** aria-label 悬浮提示延时隐藏:提示文字会遮住用量浮层,浮层出现约 1.2s 后隐藏 tooltip 并摘除 aria-label。 */
+    private tokenTooltipTimer = 0;
+    private tokensAriaLabel: string | null = null;
     private readonly inputEl: HTMLElement;
     private readonly sendBtnEl: HTMLButtonElement;
     private readonly stopBtnEl: HTMLButtonElement;
@@ -408,6 +413,7 @@ export class ChatPanel {
             <button class="b3-select b3-select--noborder sy-chat-combo sy-chat-thinking ariaLabel" data-position="n" type="button">${icon("iconBrain", "sy-chat-model-icon")}<span class="sy-chat-thinking-label"></span></button>
             <button class="b3-select b3-select--noborder sy-chat-combo sy-chat-model ariaLabel" data-position="n" type="button">${icon("iconAtom", "sy-chat-model-icon")}<span class="sy-chat-model-label"></span></button>
             <span class="fn__flex-1"></span>
+            <span class="sy-chat-stats fn__none"></span>
             <span class="sy-chat-tokens fn__none ariaLabel" aria-label="上下文用量" data-position="north"><svg viewBox="0 0 24 24"><circle class="sy-chat-tokens-track" cx="12" cy="12" r="9" stroke-width="3"></circle><circle class="sy-chat-tokens-arc" cx="12" cy="12" r="9" stroke-width="3" stroke-dasharray="0 56.55"></circle></svg></span>
             <button class="b3-button b3-button--icon b3-button--text sy-chat-send ariaLabel" aria-label="发送 (Enter)" type="button">${icon("iconSend")}</button>
             <button class="b3-button b3-button--icon b3-button--cancel sy-chat-stop fn__none ariaLabel" aria-label="停止" type="button">${icon("iconSquareStop")}</button>
@@ -427,6 +433,7 @@ export class ChatPanel {
         this.modelBtnEl = container.querySelector(".sy-chat-model")!;
         this.modelLabelEl = container.querySelector(".sy-chat-model-label")!;
         this.tokensEl = container.querySelector(".sy-chat-tokens")!;
+        this.statsEl = container.querySelector(".sy-chat-stats")!;
         // 上下文用量明细浮层:桌面 hover 200ms 延迟弹出/移出 300ms 关闭;所有设备点击 toggle(对齐原生)
         if (window.matchMedia("(hover: hover)").matches) {
             this.tokensEl.addEventListener("mouseenter", () => {
@@ -1081,7 +1088,16 @@ export class ChatPanel {
         this.callbacks.onSend(text, images);
     }
 
-    /** 思考等级菜单(与模型菜单同一浮层样式)。 */
+    /** 思考强度热力色:Off/最低档 = 灰,其余按档位从主色渐变到警示红,强度越高越“热”。 */
+    private thinkingHeatColor(idx: number, total: number): string {
+        if (idx <= 0 || total <= 1) {
+            return "var(--b3-theme-on-surface-light)";
+        }
+        const heat = Math.round((idx / (total - 1)) * 100);
+        return `color-mix(in srgb, var(--b3-theme-primary), var(--b3-theme-error) ${heat}%)`;
+    }
+
+    /** 思考等级菜单(原生 b3-menu 容器 + b3-slider 滑块,向上展开)。 */
     private thinkingMenu: HTMLElement | null = null;
 
     private toggleThinkingMenu(): void {
@@ -1090,43 +1106,62 @@ export class ChatPanel {
             return;
         }
         const {thinking} = this.callbacks.getState();
+        const levels = thinking.levels;
+        if (levels.length === 0) {
+            return;
+        }
+        const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+        const currentIdx = Math.max(0, levels.indexOf(thinking.level));
+
         const pop = document.createElement("div");
-        pop.className = "sy-agent-combo-pop sy-agent-model-menu";
-        if (!thinking.reasoning) {
-            const note = document.createElement("div");
-            note.className = "sy-agent-combo-empty";
-            note.textContent = "当前模型未标记支持思考,设置可能不会生效";
-            pop.appendChild(note);
-        }
-        for (const lv of thinking.levels) {
-            const item = document.createElement("div");
-            item.className = "sy-agent-combo-item";
-            const label = document.createElement("span");
-            label.className = "sy-agent-combo-id";
-            label.textContent = THINKING_LABELS[lv] ?? lv;
-            item.appendChild(label);
-            const note = document.createElement("span");
-            note.className = "sy-agent-combo-note";
-            note.textContent = lv;
-            item.appendChild(note);
-            if (lv === thinking.level) {
-                const check = document.createElement("span");
-                check.className = "sy-agent-combo-check";
-                check.innerHTML = icon("iconSelect");
-                item.appendChild(check);
-            }
-            item.addEventListener("click", () => {
-                this.closeThinkingMenu();
+        pop.className = "b3-menu sy-agent-thinking-menu";
+        pop.style.setProperty("--sy-think-color", this.thinkingHeatColor(currentIdx, levels.length));
+
+        // 当前档位名(拖动滑块时实时预览)
+        const valueEl = document.createElement("div");
+        valueEl.className = "sy-agent-thinking-menu-value";
+        valueEl.textContent = cap(levels[currentIdx]);
+
+        // 滑块:左端 = 最低档,右端 = 最高档;拖动结束才提交
+        const slider = document.createElement("input");
+        slider.className = "b3-slider sy-agent-thinking-menu-slider";
+        slider.type = "range";
+        slider.min = "0";
+        slider.max = String(levels.length - 1);
+        slider.step = "1";
+        slider.value = String(currentIdx);
+        slider.addEventListener("input", () => {
+            const idx = Number(slider.value);
+            valueEl.textContent = cap(levels[idx] ?? levels[0]);
+            pop.style.setProperty("--sy-think-color", this.thinkingHeatColor(idx, levels.length));
+        });
+        slider.addEventListener("change", () => {
+            const lv = levels[Number(slider.value)];
+            if (lv && lv !== thinking.level) {
                 this.callbacks.onSetThinking(lv);
-            });
-            pop.appendChild(item);
-        }
+            }
+        });
+
+        // 两端档位名,帮助定位
+        const ends = document.createElement("div");
+        ends.className = "sy-agent-thinking-menu-ends";
+        ends.innerHTML = `<span>${cap(levels[0])}</span><span>${cap(levels[levels.length - 1])}</span>`;
+
+        const body = document.createElement("div");
+        body.className = "sy-agent-thinking-menu-body";
+        body.append(valueEl, slider, ends);
+        pop.appendChild(body);
         document.body.append(pop);
+        const siyuanGlobal = (window as unknown as {siyuan?: {zIndex?: number}}).siyuan;
+        if (siyuanGlobal && typeof siyuanGlobal.zIndex === "number") {
+            pop.style.zIndex = String(++siyuanGlobal.zIndex);
+        }
+        // 向上展开:先隐藏测量实际高度,再把菜单底边贴到按钮上方(按钮位于面板底部,向下会被遮蔽)
         const rect = this.thinkingBtnEl.getBoundingClientRect();
-        pop.style.left = `${rect.left}px`;
-        pop.style.bottom = `${window.innerHeight - rect.top + 4}px`;
-        pop.style.minWidth = `${Math.max(rect.width, 140)}px`;
-        pop.style.maxWidth = "240px";
+        pop.style.visibility = "hidden";
+        pop.style.left = `${Math.max(8, rect.left)}px`;
+        pop.style.top = `${Math.max(8, rect.top - pop.offsetHeight - 6)}px`;
+        pop.style.visibility = "";
         this.thinkingMenu = pop;
         window.addEventListener("mousedown", this.onThinkingDocMouseDown, true);
         window.addEventListener("resize", this.closeThinkingMenu);
@@ -1515,30 +1550,26 @@ export class ChatPanel {
 
     /** 收集上下文统计:最近一轮 prompt tokens(= input+cacheRead+cacheWrite,覆盖式取最后一条带 usage 的 assistant
      *  消息,对齐原生 contextTokens 语义)、本轮输出 tokens 与全会话输入/输出字数。 */
-    private collectUsageStats(): {used: number; cacheRead: number; output: number; inChars: number; outChars: number} {
-        let inChars = 0;
-        let outChars = 0;
+    private collectUsageStats(): {used: number; cacheRead: number; output: number; inTokTotal: number; outTokTotal: number; cacheReadTotal: number} {
+        let inTokTotal = 0;
+        let outTokTotal = 0;
+        let cacheReadTotal = 0;
         let used = 0;
         let cacheRead = 0;
         let output = 0;
         const walk = (m: AgentMessage) => {
-            if (Array.isArray(m.content)) {
-                for (const b of m.content as {type?: string; text?: string}[]) {
-                    if (b.type === "text") {
-                        if (m.role === "user") {
-                            inChars += (b.text ?? "").length;
-                        } else if (m.role === "assistant") {
-                            outChars += (b.text ?? "").length;
-                        }
-                    }
-                }
-            }
             const u = (m as {usage?: {input?: number; output?: number; cacheRead?: number; cacheWrite?: number}}).usage;
             if (m.role === "assistant" && u) {
                 // pi usage 语义:input 不含已缓存部分,提示词总量 = input + cacheRead + cacheWrite
-                used = (u.input ?? 0) + (u.cacheRead ?? 0) + (u.cacheWrite ?? 0);
+                const prompt = (u.input ?? 0) + (u.cacheRead ?? 0) + (u.cacheWrite ?? 0);
+                // 上下文已用/本轮明细:覆盖式取最后一条带 usage 的 assistant 消息(对齐原生 contextTokens 语义)
+                used = prompt;
                 cacheRead = u.cacheRead ?? 0;
                 output = u.output ?? 0;
+                // 累计输入/输出/缓存命中 tokens:全轮次求和
+                inTokTotal += prompt;
+                outTokTotal += u.output ?? 0;
+                cacheReadTotal += u.cacheRead ?? 0;
             }
         };
         this.runner.messages.forEach(walk);
@@ -1546,60 +1577,83 @@ export class ChatPanel {
         if (streamMsg) {
             walk(streamMsg);
         }
-        return {used, cacheRead, output, inChars, outChars};
+        return {used, cacheRead, output, inTokTotal, outTokTotal, cacheReadTotal};
     }
 
     /** 上下文用量圆环(对齐原生 agent-chat__tokens):弧长 = 最近一轮 prompt tokens / 模型上下文窗口;无数据时隐藏。 */
     private updateTokenDisplay(): void {
-        const {used} = this.collectUsageStats();
-        if (used <= 0) {
+        const {used, inTokTotal, outTokTotal, cacheReadTotal} = this.collectUsageStats();
+        if (used <= 0 && inTokTotal <= 0) {
             this.tokensEl.classList.add("fn__none");
+            this.statsEl.classList.add("fn__none");
             this.closeTokenPopup();
             return;
         }
         this.tokensEl.classList.remove("fn__none");
         const arc = this.tokensEl.querySelector<SVGCircleElement>(".sy-chat-tokens-arc");
-        if (!arc) {
-            return;
+        if (arc) {
+            const circumference = 2 * Math.PI * 9; // r=9 → ≈56.55
+            const limit = this.runner.model?.contextWindow ?? 0;
+            // 已知上限按真实占用率画弧;未知上限(limit=0)不画弧,只留灰色轨道圈(对齐原生)
+            const ratio = limit > 0 ? Math.min(used / limit, 1) : 0;
+            arc.setAttribute("stroke-dasharray", `${(circumference * ratio).toFixed(2)} ${circumference.toFixed(2)}`);
         }
-        const circumference = 2 * Math.PI * 9; // r=9 → ≈56.55
-        const limit = this.runner.model?.contextWindow ?? 0;
-        // 已知上限按真实占用率画弧;未知上限(limit=0)不画弧,只留灰色轨道圈(对齐原生)
-        const ratio = limit > 0 ? Math.min(used / limit, 1) : 0;
-        arc.setAttribute("stroke-dasharray", `${(circumference * ratio).toFixed(2)} ${circumference.toFixed(2)}`);
+        // 文字统计:缓存命中率(仅实际命中时显示) + 累计输入/输出 tokens
+        const parts: string[] = [];
+        if (inTokTotal > 0 && cacheReadTotal > 0) {
+            parts.push(`${Math.round((cacheReadTotal / inTokTotal) * 100)}%`);
+        }
+        parts.push(`↑${compactNum(inTokTotal)}`, `↓${compactNum(outTokTotal)}`);
+        this.statsEl.textContent = parts.join(" ");
+        this.statsEl.classList.remove("fn__none");
     }
 
     /** 上下文用量明细浮层(对齐原生 agent-token-popup):总量行 + 占用横条 + 缓存命中/输出/字数明细。 */
     private showTokenPopup(): void {
-        const {used, cacheRead, output, inChars, outChars} = this.collectUsageStats();
+        const {used, cacheRead, output, inTokTotal, outTokTotal} = this.collectUsageStats();
         if (used <= 0) {
             return;
         }
         this.closeTokenPopup();
         const limit = this.runner.model?.contextWindow ?? 0;
-        const totalValue = limit > 0
-            ? `${compactNum(used)} / ${compactNum(limit)} · ${Math.round((used / limit) * 100)}%`
-            : compactNum(used);
-        const rows: {label: string; value: string}[] = [];
+        // 甜甜圈 + 右侧信息列即全部内容(不再单独设明细区):
+        // 本轮缓存/输出合并为一行,累计输入/输出用 ↑↓ 箭头表示
+        const pct = limit > 0 ? Math.round((used / limit) * 100) : null;
+        const donutArc = pct !== null ? Math.min(pct, 100) : 0;
+        const donutColor = pct !== null && pct >= 80 ? " style=\"stroke: var(--b3-card-error-color, #ea7b6f)\"" : "";
+        const subs: string[] = [];
+        if (limit > 0) {
+            subs.push(`剩余 ${compactNum(Math.max(limit - used, 0))}`);
+        }
+        const roundParts: string[] = [];
         if (cacheRead > 0) {
-            rows.push({label: "缓存命中", value: `${Math.round((cacheRead / used) * 1000) / 10}%`});
+            roundParts.push(`缓存 ${Math.round((cacheRead / used) * 1000) / 10}%`);
         }
         if (output > 0) {
-            rows.push({label: "本轮输出", value: compactNum(output)});
+            roundParts.push(`输出 ${compactNum(output)}`);
         }
-        rows.push({label: "输入字数", value: inChars.toLocaleString()});
-        rows.push({label: "输出字数", value: outChars.toLocaleString()});
-        let html = '<div class="b3-menu__items">'
-            + `<div class="sy-token-popup__total"><span class="sy-token-popup__label">上下文用量</span><span class="sy-token-popup__value">${totalValue}</span></div>`;
-        if (limit > 0) {
-            const ratio = Math.min(used / limit, 1);
-            html += `<div class="sy-token-popup__bar"><span style="width:${(ratio * 100).toFixed(1)}%"></span></div>`;
+        if (roundParts.length > 0) {
+            subs.push(`本轮 ${roundParts.join(" · ")}`);
         }
-        html += '<div class="sy-token-popup__divider"></div>';
-        for (const row of rows) {
-            html += `<div class="sy-token-popup__row"><span class="sy-token-popup__label">${row.label}</span><span class="sy-token-popup__value">${row.value}</span></div>`;
-        }
-        html += "</div>";
+        subs.push(`累计 ↑${compactNum(inTokTotal)} ↓${compactNum(outTokTotal)}`);
+        const html = '<div class="b3-menu__items">'
+            + '<div class="sy-token-popup__hero">'
+            + '<div class="sy-token-popup__left">'
+            + '<div class="sy-token-popup__donut">'
+            + '<svg viewBox="0 0 36 36">'
+            + '<circle class="sy-token-popup__donut-track" cx="18" cy="18" r="15.9155"></circle>'
+            + `<circle class="sy-token-popup__donut-arc" cx="18" cy="18" r="15.9155" stroke-dasharray="${donutArc} 100"${donutColor}></circle>`
+            + "</svg>"
+            + `<span class="sy-token-popup__donut-text">${pct !== null ? pct + "%" : "—"}</span>`
+            + "</div>"
+            + `<div class="sy-token-popup__donut-value">${compactNum(used)}${limit > 0 ? " / " + compactNum(limit) : ""}</div>`
+            + "</div>"
+            + '<div class="sy-token-popup__meta">'
+            + '<div class="sy-token-popup__meta-label">上下文用量</div>'
+            + subs.map((s) => `<div class="sy-token-popup__meta-sub">${s}</div>`).join("")
+            + "</div>"
+            + "</div>"
+            + "</div>";
         const popup = document.createElement("div");
         popup.className = "sy-token-popup b3-menu";
         popup.innerHTML = html;
@@ -1608,10 +1662,29 @@ export class ChatPanel {
         if (siyuan && typeof siyuan.zIndex === "number") {
             popup.style.zIndex = String(++siyuan.zIndex);
         }
-        // 定位:与原生一致——右对齐 trigger 右边缘(width 280 固定),垂直在 trigger 下方
+        // 定位:右对齐 trigger 右边缘(width 280 固定),向上展开——
+        // trigger 位于输入区底部,向下展开会超出 Dock 面板被遮蔽;
+        // 先隐藏测量实际高度,再把浮层底边贴到 trigger 上方
         const rect = this.tokensEl.getBoundingClientRect();
-        popup.style.left = `${Math.max(8, rect.right - 280)}px`;
-        popup.style.top = `${rect.bottom + 4}px`;
+        popup.style.visibility = "hidden";
+        // 浮层宽度自适应内容,右对齐 trigger 需先测量实际宽度;
+        // 再把浮层底边贴到 trigger 上方(向下展开会超出 Dock 面板被遮蔽)
+        const popupWidth = popup.offsetWidth;
+        const popupHeight = popup.offsetHeight;
+        popup.style.left = `${Math.max(8, rect.right - popupWidth)}px`;
+        popup.style.top = `${Math.max(8, rect.top - popupHeight - 6)}px`;
+        popup.style.visibility = "";
+        // aria-label 悬浮提示(“上下文用量”)会遮住浮层上半部分:浮层出现约 1.2s 后,
+        // 隐藏思源全局 #tooltip 并摘除 aria-label 防止再次弹出;关闭浮层时恢复
+        window.clearTimeout(this.tokenTooltipTimer);
+        this.tokenTooltipTimer = window.setTimeout(() => {
+            document.getElementById("tooltip")?.classList.add("fn__none");
+            this.tokensAriaLabel = this.tokensEl.getAttribute("aria-label");
+            if (this.tokensAriaLabel) {
+                this.tokensEl.removeAttribute("aria-label");
+                this.tokensEl.classList.remove("ariaLabel");
+            }
+        }, 1200);
         // popup 自身 hover 保持显示
         popup.addEventListener("mouseenter", () => window.clearTimeout(this.tokenPopupHideTimer));
         popup.addEventListener("mouseleave", () => {
@@ -1631,6 +1704,12 @@ export class ChatPanel {
     }
 
     private closeTokenPopup(): void {
+        window.clearTimeout(this.tokenTooltipTimer);
+        if (this.tokensAriaLabel) {
+            this.tokensEl.setAttribute("aria-label", this.tokensAriaLabel);
+            this.tokensEl.classList.add("ariaLabel");
+            this.tokensAriaLabel = null;
+        }
         if (this.tokenPopupOutsideClickHandler) {
             document.removeEventListener("click", this.tokenPopupOutsideClickHandler);
             this.tokenPopupOutsideClickHandler = null;
@@ -1663,7 +1742,9 @@ export class ChatPanel {
         const lv = thinking.level ?? "off";
         this.thinkingLabelEl.textContent = THINKING_LABELS[lv] ?? lv;
         this.thinkingBtnEl.classList.toggle("unconfigured", lv === "off");
-        this.thinkingBtnEl.setAttribute("aria-label", thinking.reasoning ? "思考强度" : "思考强度(当前模型未标记支持思考)");
+        this.thinkingBtnEl.setAttribute("aria-label", thinking.reasoning ? "Thinking level" : "Thinking level (not supported by current model)");
+        // 热力色:强度越高按钮颜色越“热”(灰 → 主色 → 警示红)
+        this.thinkingBtnEl.style.color = this.thinkingHeatColor(thinking.levels.indexOf(lv), thinking.levels.length);
         // 图片能力
         this.attachBtnEl.classList.toggle("unconfigured", !supportsImage);
 
