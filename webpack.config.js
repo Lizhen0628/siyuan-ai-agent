@@ -106,6 +106,7 @@ module.exports = (env, argv) => {
                     {from: "README.md", to: "./"},
                     {from: "src/i18n/", to: "./i18n/"},
                     {from: "icon.png", to: "./", noErrorOnMissing: true},
+                    {from: "preview.png", to: "./", noErrorOnMissing: true},
                 ],
             }),
         ],
