@@ -13,6 +13,15 @@ import {WRITE_TOOLS, createSiyuanTools} from "./tools";
 
 export type AgentApi = "openai-completions" | "openai-responses" | "anthropic-messages" | "google-generative-ai";
 
+/**
+ * pi-agent-core 0.73 的 ThinkingLevel 尚未包含 max(新版 pi CLI 已扩展),
+ * 本地补齐为完整等级集:off / minimal / low / medium / high / xhigh / max。
+ */
+export type AgentThinkingLevel = ThinkingLevel | "max";
+
+/** 全部思考等级(对齐 pi CLI 的 EXTENDED_THINKING_LEVELS 顺序)。 */
+const ALL_THINKING_LEVELS: AgentThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+
 /** 单个模型配置(参考思源原生 设置-人工智能-API 提供商-模型设置)。 */
 export interface AgentModelEntry {
     /** 模型 id,如 glm-5.3-flash */
@@ -44,7 +53,7 @@ export interface AgentPluginConfig {
     /** 自定义系统提示词,留空使用默认 */
     systemPrompt: string;
     /** 思考等级(仅对支持推理的模型生效),off 关闭 */
-    thinkingLevel: ThinkingLevel;
+    thinkingLevel: AgentThinkingLevel;
     /** 技能开关:内置技能默认启用(记录被禁用的),用户技能默认关闭(记录被启用的) */
     skills: {builtinDisabled: string[]; userEnabled: string[]};
     /** 能力(工具)管理:禁用的工具名 + 写工具的批准方式 */
@@ -123,18 +132,22 @@ export const STORAGE_SESSION = "agent-session";
 export function modelCapabilities(cfg: AgentPluginConfig): {
     reasoning: boolean;
     image: boolean;
-    thinkingLevels: ThinkingLevel[];
+    thinkingLevels: AgentThinkingLevel[];
 } {
     const active = resolveActiveModel(cfg);
     const catalog = findCatalogModel(cfg.provider, active.id);
-    const levels: ThinkingLevel[] = ["off", "low", "medium", "high"];
-    const map = catalog?.thinkingLevelMap;
-    if (map && "minimal" in map) {
-        levels.splice(1, 0, "minimal");
-    }
-    if (map && "xhigh" in map) {
-        levels.push("xhigh");
-    }
+    // 对齐 pi CLI getSupportedThinkingLevels:目录 map 中 null 表示该等级不支持;
+    // xhigh/max 仅在目录显式映射时给出;未知(自定义)模型没有 map,全量放开由服务商自行兜底
+    const map = catalog?.thinkingLevelMap as Partial<Record<AgentThinkingLevel, string | null>> | undefined;
+    const levels = ALL_THINKING_LEVELS.filter((lv) => {
+        if (map?.[lv] === null) {
+            return false;
+        }
+        if (map && (lv === "xhigh" || lv === "max")) {
+            return lv in map;
+        }
+        return true;
+    });
     return {
         reasoning: catalog?.reasoning ?? false,
         // 未知(自定义)模型默认放行图片,由服务商自行兜底
@@ -154,7 +167,9 @@ export function buildModel(cfg: AgentPluginConfig): Model<Api> {
         provider: cfg.provider === "custom" ? "siyuan-agent" : cfg.provider,
         baseUrl: cfg.baseURL.trim().replace(/\/+$/, ""),
         reasoning: catalog?.reasoning ?? false,
-        input: catalog?.input ?? ["text"],
+        // 未知(自定义)模型默认放行图片,与 modelCapabilities 一致;
+        // 否则 pi-ai 的 transformMessages 会把图片块降级成 "(image omitted: model does not support images)" 占位文本
+        input: catalog?.input ?? ["text", "image"],
         cost: catalog?.cost ?? {input: 0, output: 0, cacheRead: 0, cacheWrite: 0},
         contextWindow: active.contextWindow,
         maxTokens: active.maxTokens,
@@ -214,7 +229,8 @@ export class AgentRunner {
         const cfg = this.cfgProvider();
         const model = buildModel(cfg);
         // 仅对支持推理的模型下发思考等级,避免不支持的接口报错
-        const thinking = model.reasoning ? (cfg.thinkingLevel ?? "off") : "off";
+        // pi-agent-core 0.73 的类型不含 max,这里按字符串透传,由服务商端自行处理
+        const thinking = (model.reasoning ? (cfg.thinkingLevel ?? "off") : "off") as ThinkingLevel;
         if (this.agent) {
             // 配置可能已变化,重建模型对象但保留会话记录
             this.agent.state.model = model;

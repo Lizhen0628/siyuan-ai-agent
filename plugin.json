@@ -2,7 +2,7 @@
   "name": "siyuan-ai-agent",
   "author": "lizhen",
   "url": "https://github.com/Lizhen0628/siyuan-ai-agent",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "minAppVersion": "3.8.3",
   "backends": [
     "all"

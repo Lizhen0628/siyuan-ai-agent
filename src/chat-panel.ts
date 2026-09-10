@@ -7,10 +7,10 @@
  * 渲染策略:整树重绘 + rAF 节流,会话规模下性能足够。
  */
 import {showMessage} from "siyuan";
-import type {AgentEvent, AgentMessage, ThinkingLevel} from "@mariozechner/pi-agent-core";
+import type {AgentEvent, AgentMessage} from "@mariozechner/pi-agent-core";
 import type {ImageContent} from "@mariozechner/pi-ai";
 import {marked} from "marked";
-import type {AgentRunner} from "./agent-runner";
+import type {AgentRunner, AgentThinkingLevel} from "./agent-runner";
 
 marked.setOptions({gfm: true, breaks: true});
 
@@ -139,14 +139,15 @@ interface PendingImage {
     name: string;
 }
 
-/** 思考等级的中文标签(对齐原生 reasoningEffort 文案)。 */
+/** 思考等级的中文标签。 */
 const THINKING_LABELS: Record<string, string> = {
-    off: "无",
+    off: "关",
     minimal: "最小",
     low: "低",
     medium: "中",
     high: "高",
     xhigh: "超高",
+    max: "最大",
 };
 
 export interface ChatPanelCallbacks {
@@ -157,7 +158,7 @@ export interface ChatPanelCallbacks {
     /** 切换当前模型。 */
     onSwitchModel: (id: string) => void;
     /** 设置思考等级。 */
-    onSetThinking: (level: ThinkingLevel) => void;
+    onSetThinking: (level: AgentThinkingLevel) => void;
     /** 历史会话列表(按更新时间倒序)。 */
     listSessions: () => {id: string; title: string; updatedAt: number}[];
     /** 恢复某个历史会话。 */
@@ -172,7 +173,7 @@ export interface ChatPanelCallbacks {
         configured: boolean;
         sessionId: string;
         models: {id: string; label: string; active: boolean}[];
-        thinking: {level: ThinkingLevel; reasoning: boolean; levels: ThinkingLevel[]};
+        thinking: {level: AgentThinkingLevel; reasoning: boolean; levels: AgentThinkingLevel[]};
         supportsImage: boolean;
     };
 }
