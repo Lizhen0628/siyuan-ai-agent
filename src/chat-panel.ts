@@ -71,6 +71,164 @@ function renderMarkdown(md: string): string {
     }
 }
 
+/** 思源块引用语法:((20260101120000-abcdefg '锚文本')),分组:1=块 id,2=引号,3=锚文本。 */
+const BLOCK_REF_SRC = String.raw`\(\(\s*(\d{14}-[0-9a-zA-Z]{7})\s+(['"])([\s\S]*?)\2\s*\)\)`;
+
+/** 模型的纯文本引用格式:《标题》(hpath: /路径, id: 块id)——括号内需含 hpath/id 标注与块 id。
+ *  分组:1=书名号标题(可缺省),2=括号内容。 */
+const CITE_SRC = String.raw`(?:《([^》]+)》\s*)?[（(]([^()（）]*(?:hpath|id)\s*:[^()（）]*)[)）]`;
+/** 思源块 id:14 位时间戳 + 短横线 + 7 位随机字符。 */
+const BLOCK_ID_RE = /\d{14}-[0-9a-zA-Z]{7}/;
+
+/** CJK/英文引号开闭对照,用于折叠 “「标题」([标题](siyuan://…))” 重复引用。 */
+const QUOTE_PAIRS: Record<string, string> = {
+    "「": "」",
+    "『": "』",
+    "《": "》",
+    "【": "】",
+    "“": "”",
+    "‘": "’",
+    '"': '"',
+    "'": "'",
+};
+
+/** 把文本中的思源引用拆为片段:《标题》(hpath:..., id:...) 纯文本引用与 ((id '锚文本')) 语法。 */
+function splitRefSegments(text: string): (string | {id: string; anchor: string})[] {
+    const segments: (string | {id: string; anchor: string})[] = [];
+    // 第一遍:纯文本引用标注(模型未按块引用语法输出时的兜底)
+    const citeRe = new RegExp(CITE_SRC, "g");
+    let m: RegExpExecArray | null;
+    let last = 0;
+    while ((m = citeRe.exec(text))) {
+        const id = BLOCK_ID_RE.exec(m[2])?.[0];
+        if (!id) {
+            continue; // 括号里没有合法块 id,保留原文
+        }
+        const hpath = /hpath\s*:\s*([^,，;；]+)/.exec(m[2])?.[1]?.trim() ?? "";
+        const anchor = m[1] ?? (hpath.split("/").filter(Boolean).pop() || id);
+        if (m.index > last) {
+            segments.push(text.slice(last, m.index));
+        }
+        segments.push({id, anchor});
+        last = m.index + m[0].length;
+    }
+    if (last < text.length) {
+        segments.push(text.slice(last));
+    }
+    // 第二遍:剩余文本中的 ((id '锚文本')) 块引用语法
+    const out: (string | {id: string; anchor: string})[] = [];
+    for (const seg of segments) {
+        if (typeof seg !== "string") {
+            out.push(seg);
+            continue;
+        }
+        const re = new RegExp(BLOCK_REF_SRC, "g");
+        let mm: RegExpExecArray | null;
+        let l = 0;
+        while ((mm = re.exec(seg))) {
+            if (mm.index > l) {
+                out.push(seg.slice(l, mm.index));
+            }
+            out.push({id: mm[1], anchor: mm[3]});
+            l = mm.index + mm[0].length;
+        }
+        if (l < seg.length) {
+            out.push(seg.slice(l));
+        }
+    }
+    return out;
+}
+
+/** 粘贴/序列化时视为段落边界的块级标签(转换为换行)。 */
+const PASTE_BLOCK_TAGS = new Set([
+    "ADDRESS", "ARTICLE", "ASIDE", "BLOCKQUOTE", "DD", "DIV", "DL", "DT", "FIELDSET", "FIGCAPTION",
+    "FIGURE", "FOOTER", "FORM", "H1", "H2", "H3", "H4", "H5", "H6", "HEADER", "HR", "LI", "MAIN",
+    "NAV", "OL", "P", "PRE", "SECTION", "TABLE", "TR", "UL",
+]);
+
+/** 原生样式的块引用行级元素:着色 + data-id,思源全局悬停弹层(popover)据此识别并预览文档内容。 */
+function refSpanHtml(id: string, anchor: string): string {
+    return `<span data-type="block-ref" data-id="${escapeHtml(id)}" data-subtype="d">${escapeHtml(anchor)}</span>`;
+}
+
+/** 把 ((id '锚文本')) 语法替换为原生块引用 span,返回 HTML。 */
+function blockRefsToHtml(text: string): string {
+    const re = new RegExp(BLOCK_REF_SRC, "g");
+    let m: RegExpExecArray | null;
+    let last = 0;
+    let out = "";
+    while ((m = re.exec(text))) {
+        out += escapeHtml(text.slice(last, m.index)) + refSpanHtml(m[1], m[3]);
+        last = m.index + m[0].length;
+    }
+    return out + escapeHtml(text.slice(last));
+}
+
+/**
+ * 思源剪贴板 HTML → 输入框 HTML,对齐原生智能体输入框(protyle)的粘贴行为:
+ * 块引用保留为原生样式的 span(着色 + 悬停预览),其余格式降级为纯文本,块级结构还原为换行。
+ * 非思源内容返回 null,走纯文本粘贴。
+ */
+function siyuanClipboardToHtml(html: string): string | null {
+    if (!/data-node-id=|data-type=/.test(html)) {
+        return null;
+    }
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    // protyle-attr 是编辑器里的属性节点({: id=...}),不属于正文
+    doc.querySelectorAll("script,style,.protyle-attr").forEach((el) => el.remove());
+    const out = Array.from(doc.body.childNodes).map(serializePasteNode).join("");
+    return out
+        .replace(/\u200B/g, "")
+        .replace(/[ \t]+\n/g, "\n")
+        .replace(/\n{3,}/g, "\n\n")
+        .replace(/^\n+|\n+$/g, "");
+}
+
+function serializePasteNode(node: Node): string {
+    if (node.nodeType === Node.TEXT_NODE) {
+        return escapeHtml(node.textContent ?? "");
+    }
+    if (!(node instanceof HTMLElement)) {
+        return "";
+    }
+    const dataType = node.getAttribute("data-type") ?? "";
+    if (dataType.split(" ").includes("block-ref") && node.getAttribute("data-id")) {
+        return refSpanHtml(node.getAttribute("data-id")!, (node.textContent ?? "").trim());
+    }
+    if (node.tagName === "BR") {
+        return "\n";
+    }
+    const inner = Array.from(node.childNodes).map(serializePasteNode).join("");
+    if (PASTE_BLOCK_TAGS.has(node.tagName)) {
+        return inner && !inner.endsWith("\n") ? `${inner}\n` : inner;
+    }
+    return inner;
+}
+
+/** 输入框(contenteditable)内容序列化:块引用按 syntax 模式转为 ((id '锚文本'))(模型可据此定位笔记),块级元素 → 换行。 */
+function serializeInputNode(node: Node, refMode: "syntax" | "anchor"): string {
+    if (node.nodeType === Node.TEXT_NODE) {
+        return node.textContent ?? "";
+    }
+    if (node instanceof HTMLElement) {
+        const dataType = node.dataset?.type ?? "";
+        if (dataType.split(" ").includes("block-ref") && node.dataset.id) {
+            const anchor = (node.textContent ?? "").trim();
+            return refMode === "syntax" ? `((${node.dataset.id} '${anchor}'))` : anchor;
+        }
+        if (node.tagName === "BR") {
+            return "\n";
+        }
+        const inner = Array.from(node.childNodes).map((n) => serializeInputNode(n, refMode)).join("");
+        if (PASTE_BLOCK_TAGS.has(node.tagName)) {
+            return inner && !inner.endsWith("\n") ? `${inner}\n` : inner;
+        }
+        return inner;
+    }
+    // DocumentFragment 等容器节点:递归子节点
+    return Array.from(node.childNodes ?? []).map((n) => serializeInputNode(n, refMode)).join("");
+}
+
 function summarizeArgs(args: Record<string, any>): string {
     try {
         const parts = Object.entries(args ?? {}).map(([k, v]) => {
@@ -152,6 +310,8 @@ const THINKING_LABELS: Record<string, string> = {
 
 export interface ChatPanelCallbacks {
     onSend: (text: string, images?: ImageContent[]) => void;
+    /** 编辑重发:index 为被编辑的用户消息在会话中的下标,发送后截断其后的对话。 */
+    onEditResend: (index: number, text: string, images?: ImageContent[]) => void;
     onStop: () => void;
     onNewSession: () => void;
     onOpenSettings: () => void;
@@ -165,6 +325,8 @@ export interface ChatPanelCallbacks {
     onOpenSession: (id: string) => void;
     /** 删除某个历史会话(不会是当前会话)。 */
     onDeleteSession: (id: string) => void;
+    /** 打开块引用指向的笔记(点击消息中的引用)。 */
+    onOpenBlock: (id: string) => void;
     /** 输入 / 时唤起的已启用技能列表。 */
     listSkills: () => {id: string; name: string; description: string}[];
     /** 当前模型/思考/图片能力与配置完成度。 */
@@ -183,8 +345,15 @@ export class ChatPanel {
     private readonly messagesEl: HTMLElement;
     private readonly modelBtnEl: HTMLElement;
     private readonly modelLabelEl: HTMLElement;
-    private readonly statsEl: HTMLElement;
-    private readonly inputEl: HTMLTextAreaElement;
+    /** 上下文用量圆环(对齐原生 agent-chat__tokens)。 */
+    private readonly tokensEl: HTMLElement;
+    /** 上下文用量明细浮层与定时器(对齐原生 agent-token-popup)。 */
+    private tokenPopup: HTMLElement | null = null;
+    private tokenPopupShowTimer = 0;
+    private tokenPopupHideTimer = 0;
+    private tokenPopupOutsideClickHandler: (() => void) | null = null;
+    private tokenPopupResizeHandler: (() => void) | null = null;
+    private readonly inputEl: HTMLElement;
     private readonly sendBtnEl: HTMLButtonElement;
     private readonly stopBtnEl: HTMLButtonElement;
     private readonly scrollBottomEl: HTMLElement;
@@ -205,6 +374,8 @@ export class ChatPanel {
     private attachments: PendingImage[] = [];
     private renderQueued = false;
     private lastError = "";
+    /** 消息编辑模式:正在编辑的用户消息下标,null 表示非编辑模式。 */
+    private editingIndex: number | null = null;
     /** 打字机:当前正在揭示的 assistant 消息与已揭示字符数。 */
     private revealMsg: AgentMessage | null = null;
     private revealCount = 0;
@@ -230,14 +401,14 @@ export class ChatPanel {
     <div class="sy-chat-input-area">
         <div class="sy-chat-attach-strip fn__none"></div>
         <div class="sy-chat-skill-chip fn__none"></div>
-        <textarea class="sy-agent-input" rows="1" placeholder="输入消息，/技能…"></textarea>
+        <div class="sy-agent-input" contenteditable="true" data-placeholder="输入消息，/技能…"></div>
         <div class="sy-chat-skill-pop fn__none"></div>
         <div class="sy-chat-buttons">
             <button class="b3-button b3-button--icon b3-button--text sy-chat-attach ariaLabel" aria-label="插入图片" data-position="n" type="button">${icon("iconImage")}</button>
             <button class="b3-select b3-select--noborder sy-chat-combo sy-chat-thinking ariaLabel" data-position="n" type="button">${icon("iconBrain", "sy-chat-model-icon")}<span class="sy-chat-thinking-label"></span></button>
             <button class="b3-select b3-select--noborder sy-chat-combo sy-chat-model ariaLabel" data-position="n" type="button">${icon("iconAtom", "sy-chat-model-icon")}<span class="sy-chat-model-label"></span></button>
             <span class="fn__flex-1"></span>
-            <span class="sy-chat-stats ariaLabel fn__none" data-position="north"></span>
+            <span class="sy-chat-tokens fn__none ariaLabel" aria-label="上下文用量" data-position="north"><svg viewBox="0 0 24 24"><circle class="sy-chat-tokens-track" cx="12" cy="12" r="9" stroke-width="3"></circle><circle class="sy-chat-tokens-arc" cx="12" cy="12" r="9" stroke-width="3" stroke-dasharray="0 56.55"></circle></svg></span>
             <button class="b3-button b3-button--icon b3-button--text sy-chat-send ariaLabel" aria-label="发送 (Enter)" type="button">${icon("iconSend")}</button>
             <button class="b3-button b3-button--icon b3-button--cancel sy-chat-stop fn__none ariaLabel" aria-label="停止" type="button">${icon("iconSquareStop")}</button>
         </div>
@@ -255,7 +426,26 @@ export class ChatPanel {
         this.messagesEl = container.querySelector(".sy-agent-messages")!;
         this.modelBtnEl = container.querySelector(".sy-chat-model")!;
         this.modelLabelEl = container.querySelector(".sy-chat-model-label")!;
-        this.statsEl = container.querySelector(".sy-chat-stats")!;
+        this.tokensEl = container.querySelector(".sy-chat-tokens")!;
+        // 上下文用量明细浮层:桌面 hover 200ms 延迟弹出/移出 300ms 关闭;所有设备点击 toggle(对齐原生)
+        if (window.matchMedia("(hover: hover)").matches) {
+            this.tokensEl.addEventListener("mouseenter", () => {
+                window.clearTimeout(this.tokenPopupHideTimer);
+                this.tokenPopupShowTimer = window.setTimeout(() => this.showTokenPopup(), 200);
+            });
+            this.tokensEl.addEventListener("mouseleave", () => {
+                window.clearTimeout(this.tokenPopupShowTimer);
+                this.tokenPopupHideTimer = window.setTimeout(() => this.closeTokenPopup(), 300);
+            });
+        }
+        this.tokensEl.addEventListener("click", (e) => {
+            e.stopPropagation();
+            if (this.tokenPopup) {
+                this.closeTokenPopup();
+            } else {
+                this.showTokenPopup();
+            }
+        });
         this.inputEl = container.querySelector(".sy-agent-input")!;
         this.sendBtnEl = container.querySelector(".sy-chat-send")!;
         this.stopBtnEl = container.querySelector(".sy-chat-stop")!;
@@ -276,6 +466,7 @@ export class ChatPanel {
         container.querySelector(".sy-action-new")!.addEventListener("click", () => {
             this.lastError = "";
             this.setActiveSkill(null);
+            this.cancelEdit();
             callbacks.onNewSession();
         });
         container.querySelector(".sy-action-settings")!.addEventListener("click", () => callbacks.onOpenSettings());
@@ -299,21 +490,8 @@ export class ChatPanel {
             this.fileInputEl.value = "";
             void this.addImageFiles(files);
         });
-        // 粘贴剪贴板图片
-        this.inputEl.addEventListener("paste", (e) => {
-            const files = Array.from(e.clipboardData?.items ?? [])
-                .filter((it) => it.kind === "file" && it.type.startsWith("image/"))
-                .map((it) => it.getAsFile())
-                .filter((f): f is File => Boolean(f));
-            if (files.length > 0) {
-                e.preventDefault();
-                if (!this.callbacks.getState().supportsImage) {
-                    showMessage("当前模型不支持图片输入", 3000, "error");
-                    return;
-                }
-                void this.addImageFiles(files);
-            }
-        });
+        // 粘贴剪贴板图片/思源内容(编辑态气泡复用同一逻辑)
+        this.bindComposerPaste(this.inputEl);
         this.sendBtnEl.addEventListener("click", () => this.primaryAction());
         this.stopBtnEl.addEventListener("click", () => callbacks.onStop());
         this.scrollBottomEl.addEventListener("click", () => {
@@ -321,7 +499,44 @@ export class ChatPanel {
             this.updateScrollBottom();
         });
         this.messagesEl.addEventListener("scroll", () => this.updateScrollBottom());
+        // 块引用/思源链接点击打开笔记(对齐原生智能体消息渲染);悬停预览由思源全局 popover 提供
+        this.messagesEl.addEventListener("click", (e) => {
+            const target = e.target as HTMLElement;
+            let el = target.closest?.("[data-type~='block-ref'][data-id]") as HTMLElement | null;
+            let id = el?.getAttribute("data-id") ?? "";
+            if (!id) {
+                el = target.closest?.('a[data-href^="siyuan://blocks/"]') as HTMLElement | null;
+                id = /siyuan:\/\/blocks\/(\d{14}-[0-9a-zA-Z]{7})/.exec(el?.getAttribute("data-href") ?? "")?.[1] ?? "";
+            }
+            if (id && el && this.messagesEl.contains(el)) {
+                e.preventDefault();
+                e.stopPropagation();
+                this.callbacks.onOpenBlock(id);
+                return;
+            }
+            // 点击用户消息正文(非交互元素且未在选中文本)进入编辑(对齐原生 agent-chat__body 点击行为)
+            const bodyEl = target.closest?.(".sy-agent-msg.user .sy-msg-body") as HTMLElement | null;
+            if (!bodyEl || this.editingIndex !== null || this.runner.isStreaming) {
+                return;
+            }
+            if (target.closest("[data-type], a[href], img, pre, button, input, textarea, select")) {
+                return;
+            }
+            const wrap = bodyEl.closest(".sy-agent-msg.user") as HTMLElement;
+            const sel = window.getSelection();
+            if (sel && !sel.isCollapsed && wrap.contains(sel.anchorNode)) {
+                return; // 正在选中消息文本,不进入编辑
+            }
+            const idx = Number(wrap.dataset.msgIndex ?? -1);
+            if (idx >= 0) {
+                this.startEdit(idx);
+            }
+        });
         this.inputEl.addEventListener("input", () => {
+            // 内容为空时清掉浏览器残留的 <br>/<div>,保证 :empty 占位符生效
+            if (!this.inputEl.textContent && !this.inputEl.querySelector("span,img")) {
+                this.inputEl.innerHTML = "";
+            }
             this.autoResize();
             this.updateSkillPop();
         });
@@ -377,8 +592,7 @@ export class ChatPanel {
 
     /** 输入 / 开头的指令时展示已启用技能列表(参考原生智能体)。支持在任意位置输入 / 唤起。 */
     private updateSkillPop(): void {
-        const pos = this.inputEl.selectionStart ?? this.inputEl.value.length;
-        const upto = this.inputEl.value.slice(0, pos);
+        const upto = this.caretBeforeText();
         const m = /(?:^|\s)\/([^\s/]*)$/.exec(upto);
         if (!m) {
             this.closeSkillPop();
@@ -418,12 +632,10 @@ export class ChatPanel {
         if (!skill) {
             return;
         }
-        const pos = this.inputEl.selectionStart ?? this.inputEl.value.length;
-        const upto = this.inputEl.value.slice(0, pos);
+        const upto = this.caretBeforeText();
         const m = /(?:^|\s)\/[^\s/]*$/.exec(upto);
         if (m) {
-            const tokenStart = pos - m[0].length + (m[0].startsWith("/") ? 0 : 1);
-            this.inputEl.value = this.inputEl.value.slice(0, tokenStart) + this.inputEl.value.slice(pos);
+            this.deleteTextBeforeCaret(m[0].length);
         }
         this.setActiveSkill(skill);
         this.closeSkillPop();
@@ -451,7 +663,7 @@ export class ChatPanel {
             this.skillChipEl.append(iconEl, name, del);
         }
         // 只刷新发送按钮可用态,避免整树重绘
-        this.sendBtnEl.disabled = !this.runner.isStreaming && !this.inputEl.value.trim()
+        this.sendBtnEl.disabled = !this.runner.isStreaming && this.isInputEmpty()
             && this.attachments.length === 0 && !this.activeSkill;
     }
 
@@ -484,6 +696,7 @@ export class ChatPanel {
                     : `<span class="block__icon block__icon--show ariaLabel sy-history-del" data-position="west" aria-label="删除">${icon("iconTrashcan")}</span>`);
             item.addEventListener("click", () => {
                 if (s.id !== currentId) {
+                    this.cancelEdit();
                     this.callbacks.onOpenSession(s.id);
                 }
             });
@@ -504,8 +717,165 @@ export class ChatPanel {
         this.inputEl.style.height = "auto";
         this.inputEl.style.height = `${Math.min(this.inputEl.scrollHeight, 120)}px`;
         if (!this.runner.isStreaming) {
-            this.sendBtnEl.disabled = !this.inputEl.value.trim() && this.attachments.length === 0 && !this.activeSkill;
+            this.sendBtnEl.disabled = this.isInputEmpty() && this.attachments.length === 0 && !this.activeSkill;
         }
+    }
+
+    /** 输入框是否为空(无文本且无引用/图片元素)。 */
+    private isInputEmpty(): boolean {
+        return !this.inputEl.textContent?.trim() && !this.inputEl.querySelector("[data-type~='block-ref'],img");
+    }
+
+    /** 输入框待发送文本:块引用序列化为 ((id '锚文本')),模型可据此定位笔记。 */
+    private getInputText(): string {
+        return Array.from(this.inputEl.childNodes).map((n) => serializeInputNode(n, "syntax")).join("");
+    }
+
+    private setInputText(text: string): void {
+        this.inputEl.textContent = text;
+        this.autoResize();
+    }
+
+    /** 光标前的文本(技能弹层匹配用;块引用按锚文本计)。 */
+    private caretBeforeText(): string {
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0 || !this.inputEl.contains(sel.getRangeAt(0).startContainer)) {
+            return this.getInputText();
+        }
+        const range = sel.getRangeAt(0);
+        const before = range.cloneRange();
+        before.selectNodeContents(this.inputEl);
+        before.setEnd(range.startContainer, range.startOffset);
+        return serializeInputNode(before.cloneContents(), "anchor");
+    }
+
+    /** 删除光标前的 count 个文本字符(技能弹层选中后移除 /触发词)。 */
+    private deleteTextBeforeCaret(count: number): void {
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0 || !sel.isCollapsed || !this.inputEl.contains(sel.getRangeAt(0).startContainer)) {
+            return;
+        }
+        const range = sel.getRangeAt(0);
+        const del = document.createRange();
+        del.setEnd(range.startContainer, range.startOffset);
+        let remaining = count;
+        // 定位删除起点:从光标位置向文档开头逐个文本节点回退
+        let node: Node | null = range.startContainer;
+        let offset = range.startOffset;
+        if (node.nodeType === Node.ELEMENT_NODE) {
+            // 光标落在元素节点上:跳到前一个子节点末尾
+            const prev: Node | null = offset > 0 ? node.childNodes[offset - 1] : null;
+            if (!prev) {
+                return;
+            }
+            node = prev;
+            while (node.lastChild) {
+                node = node.lastChild;
+            }
+            offset = node.nodeType === Node.TEXT_NODE ? (node.textContent ?? "").length : 0;
+        }
+        while (remaining > 0 && node) {
+            if (node.nodeType === Node.TEXT_NODE) {
+                const take = Math.min(offset, remaining);
+                offset -= take;
+                remaining -= take;
+                if (remaining === 0) {
+                    del.setStart(node, offset);
+                    break;
+                }
+            }
+            if (node === this.inputEl) {
+                break;
+            }
+            // 回退到深度优先顺序中的前一个节点
+            let cur: Node = node;
+            let prev: Node | null = cur.previousSibling;
+            while (!prev && cur !== this.inputEl && cur.parentNode) {
+                cur = cur.parentNode;
+                prev = cur.previousSibling;
+            }
+            if (!prev) {
+                break;
+            }
+            node = prev;
+            while (node.lastChild) {
+                node = node.lastChild;
+            }
+            offset = node.nodeType === Node.TEXT_NODE ? (node.textContent ?? "").length : 0;
+        }
+        if (remaining === 0) {
+            del.deleteContents();
+            sel.removeAllRanges();
+            sel.addRange(del);
+        }
+    }
+
+    /** 输入框/编辑器的粘贴处理:剪贴板图片入附件(仅主输入框);思源内容还原为原生块引用 span。 */
+    private bindComposerPaste(el: HTMLElement): void {
+        el.addEventListener("paste", (e) => {
+            const files = Array.from(e.clipboardData?.items ?? [])
+                .filter((it) => it.kind === "file" && it.type.startsWith("image/"))
+                .map((it) => it.getAsFile())
+                .filter((f): f is File => Boolean(f));
+            if (files.length > 0) {
+                e.preventDefault();
+                if (el !== this.inputEl) {
+                    showMessage("编辑消息时暂不支持插入图片", 3000, "error");
+                    return;
+                }
+                if (!this.callbacks.getState().supportsImage) {
+                    showMessage("当前模型不支持图片输入", 3000, "error");
+                    return;
+                }
+                void this.addImageFiles(files);
+                return;
+            }
+            const cd = e.clipboardData;
+            if (!cd) {
+                return;
+            }
+            // contenteditable 统一接管粘贴,避免带入网页富文本格式;
+            // 思源内容还原为原生块引用 span(着色 + 悬停预览,对齐原生智能体输入框)
+            e.preventDefault();
+            const html = cd.getData("text/html");
+            const fromHtml = html ? siyuanClipboardToHtml(html) : null;
+            if (fromHtml !== null) {
+                this.insertHtml(fromHtml, el);
+                return;
+            }
+            const plain = cd.getData("text/plain");
+            if (plain) {
+                // 纯文本中的 ((id '锚文本')) 语法同样还原为块引用 span
+                this.insertHtml(blockRefsToHtml(plain), el);
+            }
+        });
+    }
+
+    /** 在光标处插入 HTML(优先 execCommand 以保留撤销栈)。 */
+    private insertHtml(html: string, host: HTMLElement = this.inputEl): void {
+        host.focus();
+        if (document.execCommand && document.execCommand("insertHTML", false, html)) {
+            return;
+        }
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0) {
+            return;
+        }
+        const range = sel.getRangeAt(0);
+        if (!host.contains(range.commonAncestorContainer)) {
+            return;
+        }
+        range.deleteContents();
+        const frag = range.createContextualFragment(html);
+        const last = frag.lastChild;
+        range.insertNode(frag);
+        if (last) {
+            range.setStartAfter(last);
+        }
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
+        host.dispatchEvent(new Event("input", {bubbles: true}));
     }
 
     /** 读入图片文件:超过 2MB 或长边超 1568px 时先压缩再转 base64。 */
@@ -560,11 +930,137 @@ export class ChatPanel {
         this.renderAttachStrip();
     }
 
+    /**
+     * 进入消息编辑模式(对齐原生 beginEditUserMessage):气泡正文就地变为编辑器,
+     * 操作行替换为取消/发送按钮;生成中或已有编辑中的消息时忽略。
+     */
+    private startEdit(index: number): void {
+        if (this.editingIndex !== null || this.runner.isStreaming) {
+            return;
+        }
+        const msg = this.runner.messages[index];
+        if (!msg || msg.role !== "user") {
+            return;
+        }
+        this.editingIndex = index;
+        this.requestRender(); // render 中该气泡构建为编辑态
+    }
+
+    /** 退出消息编辑模式,气泡恢复原始内容(对齐原生 restore)。 */
+    cancelEdit(): void {
+        if (this.editingIndex === null) {
+            return;
+        }
+        this.editingIndex = null;
+        this.requestRender();
+    }
+
+    /**
+     * 编辑态气泡:图片附件缩略图(默认保留原消息图片,可单独移除) +
+     * contenteditable 编辑器(块引用还原为彩色 span) + 取消/发送按钮。
+     * Enter 发送 / Esc 取消。对齐原生编辑草稿(initialContent/initialBlockHTML 回填)。
+     */
+    private editMessageNode(msg: AgentMessage): HTMLElement {
+        const wrap = document.createElement("div");
+        wrap.className = "sy-agent-msg user sy-editing";
+        // 原消息的图片附件随编辑保留,重发时一并提交
+        const images: ImageContent[] = (Array.isArray(msg.content) ? msg.content : [])
+            .filter((b) => b.type === "image")
+            .map((b) => {
+                const img = b as ImageContent;
+                return {type: "image" as const, data: img.data, mimeType: img.mimeType};
+            });
+        const strip = document.createElement("div");
+        strip.className = "sy-chat-attach-strip sy-msg-edit-attach";
+        const renderStrip = () => {
+            strip.classList.toggle("fn__none", images.length === 0);
+            strip.textContent = "";
+            images.forEach((img, i) => {
+                const item = document.createElement("div");
+                item.className = "sy-chat-attach-item";
+                const thumb = document.createElement("img");
+                thumb.src = `data:${img.mimeType};base64,${img.data}`;
+                thumb.alt = "image";
+                const del = document.createElement("span");
+                del.className = "sy-chat-attach-del ariaLabel";
+                del.setAttribute("aria-label", "移除图片");
+                del.setAttribute("data-position", "north");
+                del.innerHTML = icon("iconClose");
+                del.addEventListener("click", () => {
+                    images.splice(i, 1);
+                    renderStrip();
+                });
+                item.append(thumb, del);
+                strip.append(item);
+            });
+        };
+        renderStrip();
+        const editor = document.createElement("div");
+        editor.className = "sy-agent-input sy-msg-edit-input";
+        editor.contentEditable = "true";
+        // 与粘贴处理一致:((id '锚文本')) 语法还原为原生块引用 span
+        editor.innerHTML = blockRefsToHtml(plainText(msg));
+        const actions = document.createElement("div");
+        actions.className = "sy-msg-edit-actions";
+        const cancel = document.createElement("button");
+        cancel.className = "b3-button b3-button--small b3-button--cancel";
+        cancel.textContent = window.siyuan?.languages?.cancel ?? "取消";
+        const submit = document.createElement("button");
+        submit.className = "b3-button b3-button--small b3-button--text";
+        submit.textContent = "发送";
+        actions.append(cancel, submit);
+        // 图片缩略图条与编辑器一起包在气泡容器内(与普通消息气泡的图片布局一致)
+        const bubble = document.createElement("div");
+        bubble.className = "sy-msg-edit-bubble";
+        bubble.append(strip, editor);
+        wrap.append(bubble, actions);
+        const submitEdit = () => {
+            const text = Array.from(editor.childNodes).map((n) => serializeInputNode(n, "syntax")).join("").trim();
+            if ((!text && images.length === 0) || this.editingIndex === null) {
+                editor.focus();
+                return;
+            }
+            const index = this.editingIndex;
+            this.editingIndex = null;
+            this.callbacks.onEditResend(index, text, images.length > 0 ? images : undefined);
+        };
+        cancel.addEventListener("click", () => this.cancelEdit());
+        submit.addEventListener("click", submitEdit);
+        editor.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+                e.preventDefault();
+                submitEdit();
+            } else if (e.key === "Escape") {
+                e.preventDefault();
+                e.stopPropagation();
+                this.cancelEdit();
+            }
+        });
+        this.bindComposerPaste(editor);
+        // 挂载后聚焦并把光标移到末尾(对齐原生 editComposer.focus(true))
+        requestAnimationFrame(() => {
+            if (!wrap.isConnected) {
+                return;
+            }
+            editor.focus();
+            const sel = window.getSelection();
+            if (!sel) {
+                return;
+            }
+            const range = document.createRange();
+            range.selectNodeContents(editor);
+            range.collapse(false);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+        return wrap;
+    }
+
     private primaryAction(): void {
         if (this.runner.isStreaming) {
             return;
         }
-        const value = this.inputEl.value.trim();
+        const value = this.getInputText().trim();
         const images: ImageContent[] = this.attachments.map((a) => ({
             type: "image",
             data: a.data,
@@ -576,10 +1072,11 @@ export class ChatPanel {
         // 技能胶囊转为 /技能id 前缀,模型按系统提示词中的技能正文执行
         const text = this.activeSkill ? `/${this.activeSkill.id}${value ? " " + value : ""}` : value;
         this.lastError = "";
-        this.inputEl.value = "";
+        this.inputEl.innerHTML = "";
         this.setActiveSkill(null);
         this.clearAttachments();
         this.closeSkillPop();
+        this.cancelEdit(); // 发送新消息时退出可能存在的消息编辑态
         this.autoResize();
         this.callbacks.onSend(text, images);
     }
@@ -788,26 +1285,105 @@ export class ChatPanel {
         });
     }
 
-    /** 原生样式的悬停操作行(复制),block__icon 图标右对齐。 */
-    private actionRow(text: string): HTMLElement {
+    /**
+     * 思源引用增强(对齐原生智能体消息渲染):
+     * - ((id '锚文本')) 语法 → 原生块引用 span(着色 + 悬停预览文档内容)
+     * - 《标题》(hpath:..., id:...) 纯文本引用标注 → 同上(模型未按语法输出时的兜底)
+     * - siyuan://blocks 链接 → data-type="a" + data-href,原生 popover 同样识别
+     * 悬停预览由思源全局 popover(initBlockPopover,文档级 mouseover 监听)自动提供;
+     * 点击打开由 messagesEl 上的事件委托处理。
+     */
+    private enhanceRefs(container: HTMLElement): void {
+        container.querySelectorAll<HTMLAnchorElement>('a[href^="siyuan://blocks/"]').forEach((a) => {
+            a.setAttribute("data-type", "a");
+            a.setAttribute("data-href", a.getAttribute("href") ?? "");
+            this.dedupeRefLink(a);
+        });
+        const probe = new RegExp(`${BLOCK_REF_SRC}|hpath\s*:`);
+        const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+        const targets: Text[] = [];
+        while (walker.nextNode()) {
+            const node = walker.currentNode as Text;
+            if (node.parentElement?.closest("code,pre,a,[data-type]")) {
+                continue;
+            }
+            if (node.data && probe.test(node.data)) {
+                targets.push(node);
+            }
+        }
+        for (const node of targets) {
+            const segments = splitRefSegments(node.data);
+            if (!segments.some((s) => typeof s !== "string")) {
+                continue;
+            }
+            const frag = document.createDocumentFragment();
+            for (const seg of segments) {
+                if (typeof seg === "string") {
+                    frag.append(document.createTextNode(seg));
+                    continue;
+                }
+                const span = document.createElement("span");
+                span.setAttribute("data-type", "block-ref");
+                span.setAttribute("data-id", seg.id);
+                span.setAttribute("data-subtype", "d");
+                span.textContent = seg.anchor;
+                frag.append(span);
+            }
+            node.replaceWith(frag);
+        }
+    }
+
+    /**
+     * 折叠重复引用:模型未按约定直接链化标题时,会输出 “「标题」([标题](siyuan://…))”
+     * (原文 + 括号内重复一份带链接的文本)。识别该模式并折叠为 “「标题」”——标题文本本身即链接,
+     * 对齐原生智能体“在正文上直接挂引用链接”的呈现。结构不匹配时不做任何改动。
+     */
+    private dedupeRefLink(a: HTMLAnchorElement): void {
+        const label = (a.textContent ?? "").trim();
+        const prev = a.previousSibling;
+        const next = a.nextSibling;
+        if (!label || prev?.nodeType !== Node.TEXT_NODE || next?.nodeType !== Node.TEXT_NODE) {
+            return;
+        }
+        const prevText = (prev as Text).data;
+        const nextText = (next as Text).data;
+        const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        // 前文以 [开引号]标题[闭引号]( 结尾,后文以 ) 开头 → 判定为重复引用
+        const m = new RegExp(`([「『《【“‘"']?)${escaped}[」』》】”’"']?\\s*[（(]\\s*$`).exec(prevText);
+        if (!m || !/^\s*[)）]/.test(nextText)) {
+            return;
+        }
+        const openQuote = m[1];
+        (prev as Text).data = prevText.slice(0, m.index) + openQuote;
+        (next as Text).data = nextText.replace(/^\s*[)）]/, QUOTE_PAIRS[openQuote] ?? "");
+    }
+
+    /** 原生样式的悬停操作行:编辑(仅用户消息)+ 复制,block__icon 图标右对齐。 */
+    private actionRow(text: string, onEdit?: () => void): HTMLElement {
         const row = document.createElement("div");
         row.className = "sy-msg-actions";
-        const btn = document.createElement("span");
-        btn.className = "block__icon block__icon--show ariaLabel";
-        btn.setAttribute("data-position", "north");
-        btn.setAttribute("aria-label", "复制");
-        btn.innerHTML = icon("iconCopy");
-        btn.addEventListener("click", () => {
+        const mkBtn = (label: string, iconId: string, onClick: () => void): HTMLElement => {
+            const btn = document.createElement("span");
+            btn.className = "block__icon block__icon--show ariaLabel";
+            btn.setAttribute("data-position", "north");
+            btn.setAttribute("aria-label", label);
+            btn.innerHTML = icon(iconId);
+            btn.addEventListener("click", onClick);
+            return btn;
+        };
+        if (onEdit) {
+            row.appendChild(mkBtn(window.siyuan?.languages?.edit ?? "编辑", "iconEdit", onEdit));
+        }
+        row.appendChild(mkBtn("复制", "iconCopy", () => {
             navigator.clipboard?.writeText(text).then(
                 () => showMessage("已复制", 1500),
                 () => showMessage("复制失败", 1500, "error"),
             );
-        });
-        row.appendChild(btn);
+        }));
         return row;
     }
 
-    private messageNode(msg: AgentMessage, revealLen?: number): HTMLElement {
+    private messageNode(msg: AgentMessage, revealLen?: number, msgIndex?: number): HTMLElement {
         const wrap = document.createElement("div");
         if (msg.role === "user") {
             wrap.className = "sy-agent-msg user";
@@ -823,7 +1399,11 @@ export class ChatPanel {
                 )
                 .join("");
             body.innerHTML = imgs + renderMarkdown(plainText(msg) || " ");
-            wrap.append(body, this.actionRow(plainText(msg)));
+            this.enhanceRefs(body);
+            wrap.append(body, this.actionRow(
+                plainText(msg),
+                msgIndex !== undefined ? () => this.startEdit(msgIndex) : undefined,
+            ));
             return wrap;
         }
         if (msg.role === "assistant") {
@@ -865,6 +1445,7 @@ export class ChatPanel {
                 html += `<span class="sy-agent-caret"></span>`;
             }
             body.innerHTML = html;
+            this.enhanceRefs(body);
             wrap.append(body, this.actionRow(plainText(msg)));
             return wrap;
         }
@@ -900,8 +1481,7 @@ export class ChatPanel {
                 item.className = "sy-agent-welcome__example";
                 item.textContent = prompt;
                 item.addEventListener("click", () => {
-                    this.inputEl.value = prompt;
-                    this.autoResize();
+                    this.setInputText(prompt);
                     this.focusInput();
                 });
                 examples.appendChild(item);
@@ -933,15 +1513,17 @@ export class ChatPanel {
         this.scrollBottomEl.classList.toggle("fn__none", nearBottom);
     }
 
-    /** 会话统计:缓存命中率(来自 pi usage) + 输入/输出字数(含流式中的消息)。 */
-    private updateStats(): void {
+    /** 收集上下文统计:最近一轮 prompt tokens(= input+cacheRead+cacheWrite,覆盖式取最后一条带 usage 的 assistant
+     *  消息,对齐原生 contextTokens 语义)、本轮输出 tokens 与全会话输入/输出字数。 */
+    private collectUsageStats(): {used: number; cacheRead: number; output: number; inChars: number; outChars: number} {
         let inChars = 0;
         let outChars = 0;
-        let inTok = 0;
-        let cacheTok = 0;
+        let used = 0;
+        let cacheRead = 0;
+        let output = 0;
         const walk = (m: AgentMessage) => {
             if (Array.isArray(m.content)) {
-                for (const b of m.content as any[]) {
+                for (const b of m.content as {type?: string; text?: string}[]) {
                     if (b.type === "text") {
                         if (m.role === "user") {
                             inChars += (b.text ?? "").length;
@@ -951,10 +1533,12 @@ export class ChatPanel {
                     }
                 }
             }
-            const u = (m as any).usage;
+            const u = (m as {usage?: {input?: number; output?: number; cacheRead?: number; cacheWrite?: number}}).usage;
             if (m.role === "assistant" && u) {
-                inTok += (u.input ?? 0) + (u.cacheRead ?? 0);
-                cacheTok += u.cacheRead ?? 0;
+                // pi usage 语义:input 不含已缓存部分,提示词总量 = input + cacheRead + cacheWrite
+                used = (u.input ?? 0) + (u.cacheRead ?? 0) + (u.cacheWrite ?? 0);
+                cacheRead = u.cacheRead ?? 0;
+                output = u.output ?? 0;
             }
         };
         this.runner.messages.forEach(walk);
@@ -962,19 +1546,103 @@ export class ChatPanel {
         if (streamMsg) {
             walk(streamMsg);
         }
-        if (inChars === 0 && outChars === 0) {
-            this.statsEl.classList.add("fn__none");
+        return {used, cacheRead, output, inChars, outChars};
+    }
+
+    /** 上下文用量圆环(对齐原生 agent-chat__tokens):弧长 = 最近一轮 prompt tokens / 模型上下文窗口;无数据时隐藏。 */
+    private updateTokenDisplay(): void {
+        const {used} = this.collectUsageStats();
+        if (used <= 0) {
+            this.tokensEl.classList.add("fn__none");
+            this.closeTokenPopup();
             return;
         }
-        const parts: string[] = [];
-        if (inTok > 0) {
-            parts.push(`${Math.round((cacheTok / inTok) * 100)}%`);
+        this.tokensEl.classList.remove("fn__none");
+        const arc = this.tokensEl.querySelector<SVGCircleElement>(".sy-chat-tokens-arc");
+        if (!arc) {
+            return;
         }
-        parts.push(`↑${compactNum(inChars)}`, `↓${compactNum(outChars)}`);
-        this.statsEl.textContent = parts.join(" ");
-        this.statsEl.setAttribute("aria-label",
-            `本会话统计\n缓存命中率: ${inTok > 0 ? `${Math.round((cacheTok / inTok) * 100)}%(${cacheTok.toLocaleString()}/${inTok.toLocaleString()} tokens)` : "无数据"}\n输入字数: ${inChars.toLocaleString()}\n输出字数: ${outChars.toLocaleString()}`);
-        this.statsEl.classList.remove("fn__none");
+        const circumference = 2 * Math.PI * 9; // r=9 → ≈56.55
+        const limit = this.runner.model?.contextWindow ?? 0;
+        // 已知上限按真实占用率画弧;未知上限(limit=0)不画弧,只留灰色轨道圈(对齐原生)
+        const ratio = limit > 0 ? Math.min(used / limit, 1) : 0;
+        arc.setAttribute("stroke-dasharray", `${(circumference * ratio).toFixed(2)} ${circumference.toFixed(2)}`);
+    }
+
+    /** 上下文用量明细浮层(对齐原生 agent-token-popup):总量行 + 占用横条 + 缓存命中/输出/字数明细。 */
+    private showTokenPopup(): void {
+        const {used, cacheRead, output, inChars, outChars} = this.collectUsageStats();
+        if (used <= 0) {
+            return;
+        }
+        this.closeTokenPopup();
+        const limit = this.runner.model?.contextWindow ?? 0;
+        const totalValue = limit > 0
+            ? `${compactNum(used)} / ${compactNum(limit)} · ${Math.round((used / limit) * 100)}%`
+            : compactNum(used);
+        const rows: {label: string; value: string}[] = [];
+        if (cacheRead > 0) {
+            rows.push({label: "缓存命中", value: `${Math.round((cacheRead / used) * 1000) / 10}%`});
+        }
+        if (output > 0) {
+            rows.push({label: "本轮输出", value: compactNum(output)});
+        }
+        rows.push({label: "输入字数", value: inChars.toLocaleString()});
+        rows.push({label: "输出字数", value: outChars.toLocaleString()});
+        let html = '<div class="b3-menu__items">'
+            + `<div class="sy-token-popup__total"><span class="sy-token-popup__label">上下文用量</span><span class="sy-token-popup__value">${totalValue}</span></div>`;
+        if (limit > 0) {
+            const ratio = Math.min(used / limit, 1);
+            html += `<div class="sy-token-popup__bar"><span style="width:${(ratio * 100).toFixed(1)}%"></span></div>`;
+        }
+        html += '<div class="sy-token-popup__divider"></div>';
+        for (const row of rows) {
+            html += `<div class="sy-token-popup__row"><span class="sy-token-popup__label">${row.label}</span><span class="sy-token-popup__value">${row.value}</span></div>`;
+        }
+        html += "</div>";
+        const popup = document.createElement("div");
+        popup.className = "sy-token-popup b3-menu";
+        popup.innerHTML = html;
+        document.body.appendChild(popup);
+        const siyuan = (window as unknown as {siyuan?: {zIndex?: number}}).siyuan;
+        if (siyuan && typeof siyuan.zIndex === "number") {
+            popup.style.zIndex = String(++siyuan.zIndex);
+        }
+        // 定位:与原生一致——右对齐 trigger 右边缘(width 280 固定),垂直在 trigger 下方
+        const rect = this.tokensEl.getBoundingClientRect();
+        popup.style.left = `${Math.max(8, rect.right - 280)}px`;
+        popup.style.top = `${rect.bottom + 4}px`;
+        // popup 自身 hover 保持显示
+        popup.addEventListener("mouseenter", () => window.clearTimeout(this.tokenPopupHideTimer));
+        popup.addEventListener("mouseleave", () => {
+            this.tokenPopupHideTimer = window.setTimeout(() => this.closeTokenPopup(), 300);
+        });
+        popup.addEventListener("click", (e) => e.stopPropagation());
+        // 点击外部/resize 关闭
+        this.tokenPopupOutsideClickHandler = () => this.closeTokenPopup();
+        this.tokenPopupResizeHandler = () => this.closeTokenPopup();
+        setTimeout(() => {
+            if (this.tokenPopupOutsideClickHandler) {
+                document.addEventListener("click", this.tokenPopupOutsideClickHandler);
+            }
+        }, 10);
+        window.addEventListener("resize", this.tokenPopupResizeHandler);
+        this.tokenPopup = popup;
+    }
+
+    private closeTokenPopup(): void {
+        if (this.tokenPopupOutsideClickHandler) {
+            document.removeEventListener("click", this.tokenPopupOutsideClickHandler);
+            this.tokenPopupOutsideClickHandler = null;
+        }
+        if (this.tokenPopupResizeHandler) {
+            window.removeEventListener("resize", this.tokenPopupResizeHandler);
+            this.tokenPopupResizeHandler = null;
+        }
+        window.clearTimeout(this.tokenPopupShowTimer);
+        window.clearTimeout(this.tokenPopupHideTimer);
+        this.tokenPopup?.remove();
+        this.tokenPopup = null;
     }
 
     private render(): void {
@@ -984,7 +1652,7 @@ export class ChatPanel {
         // 原生行为:生成中隐藏发送、显示停止
         this.sendBtnEl.classList.toggle("fn__none", streaming);
         this.stopBtnEl.classList.toggle("fn__none", !streaming);
-        this.sendBtnEl.disabled = !streaming && !this.inputEl.value.trim() && this.attachments.length === 0 && !this.activeSkill;
+        this.sendBtnEl.disabled = !streaming && this.isInputEmpty() && this.attachments.length === 0 && !this.activeSkill;
         this.modelLabelEl.textContent = modelId || "未配置模型";
         this.modelBtnEl.classList.toggle("unconfigured", !configured);
         this.modelBtnEl.setAttribute(
@@ -999,7 +1667,7 @@ export class ChatPanel {
         // 图片能力
         this.attachBtnEl.classList.toggle("unconfigured", !supportsImage);
 
-        this.updateStats();
+        this.updateTokenDisplay();
 
         const messages = this.runner.messages;
         // 打字机:流式期间进行中的 assistant 消息在 runner.streamingMessage(message_end 才并入 messages)
@@ -1025,8 +1693,29 @@ export class ChatPanel {
         if (displayMessages.length === 0 && !streaming) {
             frag.appendChild(this.emptyNode(configured));
         } else {
+            // msgIndex 与 runner.messages 的下标一致(流式消息追加在末尾,不影响已有下标),
+            // 供用户消息的“编辑重发”定位会话截断点
+            let msgIndex = 0;
+            // 编辑中的气泡保留既有 DOM,避免重绘覆盖正在输入的内容
+            const editingNode = this.editingIndex !== null
+                ? this.messagesEl.querySelector<HTMLElement>(".sy-agent-msg.sy-editing")
+                : null;
             for (const msg of displayMessages) {
-                frag.appendChild(this.messageNode(msg, typing && msg === streamMsg ? this.revealCount : undefined));
+                if (msg.role === "user" && msgIndex === this.editingIndex) {
+                    frag.appendChild(editingNode ?? this.editMessageNode(msg));
+                    msgIndex++;
+                    continue;
+                }
+                const node = this.messageNode(
+                    msg,
+                    typing && msg === streamMsg ? this.revealCount : undefined,
+                    msg.role === "user" ? msgIndex : undefined,
+                );
+                if (msg.role === "user") {
+                    node.dataset.msgIndex = String(msgIndex);
+                }
+                frag.appendChild(node);
+                msgIndex++;
             }
             if (streaming && !typing) {
                 const waiting = document.createElement("div");

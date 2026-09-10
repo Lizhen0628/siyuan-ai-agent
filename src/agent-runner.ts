@@ -64,13 +64,22 @@ export interface AgentPluginConfig {
 
 export type SearchEngine = "duckduckgo" | "bing" | "baidu" | "google";
 
+/** 引用格式说明:对齐原生智能体——对话中提及笔记用 siyuan:// 链接(渲染为可点击/可悬停预览的引用)。 */
+const CITATION_PROMPT_LINE = "- 提及可打开的文档/块时,把标题文本直接写成 Markdown 链接 [标题](siyuan://blocks/块id),如:详见 [第七章 大模型应用](siyuan://blocks/20240101120000-abcdefg) 的介绍;不要在原文旁边再用括号重复一份带链接的文本。块 id 必须来自工具调用结果(如 search_notes 的 block_id/root_id),严禁编造;不要输出 (hpath: ...) 之类的纯文本标注。";
+/** 旧版引用说明(纯文本 hpath 标注 / 块引用语法 / 未禁止括号重复的链接格式),迁移时定向替换为新版。 */
+const LEGACY_CITATION_PROMPT_LINES = [
+    "- 引用笔记内容时注明来源路径(hpath)。",
+    "- 引用笔记内容时使用思源块引用语法 ((块id '标题')),如 ((20240101120000-abcdefg '第七章 大模型应用')),块 id 见工具结果中的 block_id/root_id;该语法在对话中会渲染为可点击、可悬停预览的引用,不要输出 (hpath: ...) 之类的纯文本标注。",
+    "- 提及可打开的文档/块时使用 Markdown 链接 [标题](siyuan://blocks/块id),块 id 必须来自工具调用结果(如 search_notes 的 block_id/root_id),严禁编造;该链接在对话中会渲染为可点击、可悬停预览的引用,不要输出 (hpath: ...) 之类的纯文本标注。",
+];
+
 export const DEFAULT_SYSTEM_PROMPT = `你是思源笔记中的智能体助手,可以借助工具对当前用户的笔记库进行检索、阅读和编辑。
 
 工作准则:
 - 涉及笔记内容的问题,先用 search_notes 检索,再 read_note 阅读,不要凭空编造笔记内容。
 - 需要联网获取信息时,先用 web_search 搜索关键词找到相关链接,再用 web_fetch 抓取页面正文细读;把外部资料整理进笔记时注明来源链接。
 - 创建/修改笔记前,先用 list_notebooks 确认笔记本 id;写操作会向用户请求确认,被拒绝时不要重试,改为询问用户意图。
-- 引用笔记内容时注明来源路径(hpath)。
+${CITATION_PROMPT_LINE}
 - 回答使用简体中文,输出使用 Markdown;列表/标题层级清晰,不要输出嵌套代码块包裹的普通文本。`;
 
 export const DEFAULT_CONFIG: AgentPluginConfig = {
@@ -107,6 +116,13 @@ export function migrateConfig(raw: Partial<AgentPluginConfig> & {modelId?: strin
     // 旧默认提示词未包含联网说明时升级到新版(自定义提示词不受影响)
     if (cfg.systemPrompt.includes("引用笔记内容时注明来源路径") && !cfg.systemPrompt.includes("web_search")) {
         cfg.systemPrompt = DEFAULT_SYSTEM_PROMPT;
+    }
+    // 引用说明升级为原生智能体的 siyuan:// 链接格式(定向替换该行,自定义提示词的其他内容不受影响)
+    for (const legacy of LEGACY_CITATION_PROMPT_LINES) {
+        if (cfg.systemPrompt.includes(legacy)) {
+            cfg.systemPrompt = cfg.systemPrompt.replace(legacy, CITATION_PROMPT_LINE);
+            break;
+        }
     }
     if (!cfg.searchEngine) {
         cfg.searchEngine = "duckduckgo";
@@ -224,6 +240,18 @@ export class AgentRunner {
         return this.agent?.state.errorMessage;
     }
 
+    /** 当前模型(供面板读取 contextWindow 等元信息);未初始化时按配置临时构建。 */
+    get model(): Model<Api> | undefined {
+        if (this.agent?.state.model) {
+            return this.agent.state.model;
+        }
+        try {
+            return buildModel(this.cfgProvider());
+        } catch {
+            return undefined;
+        }
+    }
+
     /** 创建(或按需恢复)智能体实例。 */
     private ensureAgent(): Agent {
         const cfg = this.cfgProvider();
@@ -295,6 +323,27 @@ export class AgentRunner {
             return;
         }
         this.pendingRestore = messages;
+    }
+
+    /**
+     * 编辑重发的第一步:截断指定下标起的会话(该下标应为一条用户消息)。
+     * 若正在生成,先中止并等待收尾再截断,避免后续 prompt 与进行中的运行冲突。
+     * 截断后调用方应重绘会话,再以新内容调用 send()。
+     */
+    async truncateFrom(index: number): Promise<boolean> {
+        const agent = this.ensureAgent();
+        if (agent.state.messages[index]?.role !== "user") {
+            return false;
+        }
+        if (agent.state.isStreaming) {
+            agent.abort();
+            await agent.waitForIdle();
+        }
+        agent.clearAllQueues();
+        // 中止期间可能追加了未完成的部分消息,重新读取后再截断
+        agent.state.messages = agent.state.messages.slice(0, index);
+        this.onSessionChange();
+        return true;
     }
 
     async send(text: string, images?: ImageContent[]): Promise<void> {

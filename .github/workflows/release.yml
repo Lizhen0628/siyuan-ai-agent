@@ -1,0 +1,58 @@
+# 发布流水线:推送 v* 标签时构建并创建 GitHub Release。
+# 思源插件集市通过 Release 中的 package.zip 拉取插件文件,
+# 因此产物必须打包为 package.zip(包含 plugin.json/index.js/index.css/icon.png/preview.png/README.md/i18n 等)。
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check & build
+        run: |
+          npx tsc --noEmit
+          pnpm run build
+
+      - name: Verify version matches tag
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          PLUGIN_VERSION=$(node -p "require('./plugin.json').version")
+          TAG_VERSION=${GITHUB_REF_NAME#v}
+          echo "package.json=$PKG_VERSION plugin.json=$PLUGIN_VERSION tag=$TAG_VERSION"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ] || [ "$PLUGIN_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::版本号不一致,请先同步 package.json / plugin.json 与标签版本"
+            exit 1
+          fi
+
+      - name: Package as package.zip
+        run: |
+          cd dist
+          zip -r ../package.zip . -x "*.LICENSE.txt"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: package.zip
+          generate_release_notes: true

@@ -5,7 +5,7 @@
  * 对话窗口挂载在右侧 Dock 侧边栏(参考思源内置智能体与 obsidian-copilot),
  * 与思源内置智能体相互独立。
  */
-import {confirm, Plugin, showMessage} from "siyuan";
+import {confirm, getFrontend, openMobileFileById, openTab, Plugin, showMessage} from "siyuan";
 import "./index.css";
 import {AgentRunner, DEFAULT_CONFIG, STORAGE_CONFIG, STORAGE_SESSION, migrateConfig, modelCapabilities, resolveActiveModel} from "./agent-runner";
 import {refreshUserSkills, enabledSkills} from "./skills";
@@ -158,6 +158,7 @@ export default class SiyuanAgentPlugin extends Plugin {
                 const el = custom.element as HTMLElement;
                 this.panel = new ChatPanel(el, this.runner, {
                     onSend: (textValue, images) => void this.send(textValue, images),
+                    onEditResend: (index, textValue, images) => void this.editResend(index, textValue, images),
                     onStop: () => this.runner.stop(),
                     onNewSession: () => {
                         this.currentSessionId = genSessionId();
@@ -189,6 +190,14 @@ export default class SiyuanAgentPlugin extends Plugin {
                         }
                         this.sessions = this.sessions.filter((s) => s.id !== id);
                         void this.saveData(STORAGE_SESSIONS, {currentId: this.currentSessionId, sessions: this.sessions});
+                    },
+                    /** 点击消息中的块引用:打开对应笔记(对齐原生智能体)。 */
+                    onOpenBlock: (id) => {
+                        if (getFrontend() === "mobile") {
+                            openMobileFileById(this.app, id);
+                        } else {
+                            void openTab({app: this.app, doc: {id}});
+                        }
                     },
                     getState: () => {
                         const active = resolveActiveModel(this.config);
@@ -324,6 +333,50 @@ export default class SiyuanAgentPlugin extends Plugin {
             this.sending = false;
             this.panel?.requestRender();
         }
+    }
+
+    /** 编辑重发:截断被编辑消息及其后的对话,以新内容重新发送(生成中先中止)。
+     *  对齐原生 regenerateResponse:若被编辑消息之后执行过工具(笔记可能已被修改),
+     *  弹确认框提示历史将被删除且副作用不会回滚。 */
+    private async editResend(index: number, textValue: string, images?: import("@mariozechner/pi-ai").ImageContent[]): Promise<void> {
+        if (this.sending) {
+            return;
+        }
+        // hasAgentExecutedToolsAfter 的等价判断:后续 assistant 消息中含工具调用
+        const toolsAfter = this.runner.messages.slice(index + 1).some((m) =>
+            m.role === "assistant" && Array.isArray(m.content)
+            && (m.content as {type?: string}[]).some((b) => b.type === "toolCall"));
+        if (toolsAfter && !(await this.confirmEditTruncation())) {
+            return;
+        }
+        this.sending = true;
+        try {
+            if (!(await this.runner.truncateFrom(index))) {
+                showMessage("无法编辑该消息", 3000, "error");
+                return;
+            }
+            this.panel?.requestRender();
+            await this.runner.send(textValue, images);
+        } catch (e: any) {
+            console.error("[siyuan-agent] 运行失败", e);
+            showMessage(`智能体运行失败: ${e?.message ?? e}`, 6000, "error");
+        } finally {
+            this.sending = false;
+            this.panel?.requestRender();
+        }
+    }
+
+    /** 截断确认(对齐原生 agentEditHistoryWarning):已执行的工具操作不会回滚。 */
+    private confirmEditTruncation(): Promise<boolean> {
+        return new Promise<boolean>((resolve) => {
+            confirm(
+                window.siyuan?.languages?.confirm ?? "确认",
+                window.siyuan?.languages?.agentEditHistoryWarning
+                    ?? "编辑此消息将删除其后的对话记录,已执行的工具操作(如对笔记的修改)不会回滚。是否继续?",
+                () => resolve(true),
+                () => resolve(false),
+            );
+        });
     }
 
     override openSetting(): void {

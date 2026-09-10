@@ -7,6 +7,8 @@
     box-sizing: border-box;
     overflow: hidden;
     position: relative;
+    /* 窄面板适配:作为 container query 容器,宽度不足时隐藏图标旁的文字标签 */
+    container-type: inline-size;
 }
 
 /* 对话历史面板(覆盖在消息区上) */
@@ -211,7 +213,8 @@
 .sy-agent-msg.user .sy-msg-body {
     width: auto;
     max-width: 80%;
-    background: var(--b3-theme-surface);
+    background: var(--b3-theme-primary-lightest);
+    border: 1px solid var(--b3-theme-primary-lighter);
     border-radius: var(--b3-border-radius-b);
     padding: 8px 12px;
     box-sizing: border-box;
@@ -478,11 +481,40 @@ summary.sy-agent-tool-head,
     flex-shrink: 0;
 }
 
+/* 消息编辑模式:维持用户气泡样式(右对齐 + 主题色浅底气泡),取消/发送按钮替换悬停操作行;
+   图片缩略图与编辑器同处于一个气泡容器内(与普通消息气泡的布局一致) */
+.sy-agent-msg.user.sy-editing {
+    align-items: flex-end;
+}
+
+.sy-msg-edit-bubble {
+    width: auto;
+    min-width: min(280px, 100%);
+    max-width: 80%;
+    background: var(--b3-theme-primary-lightest);
+    border: 1px solid var(--b3-theme-primary-lighter);
+    border-radius: var(--b3-border-radius-b);
+    padding: 8px 12px;
+    box-sizing: border-box;
+}
+
+/* 编辑器在气泡内,自身不再带气泡样式 */
+.sy-agent-msg .sy-msg-edit-input {
+    width: 100%;
+    max-height: 160px;
+}
+
+.sy-msg-edit-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 6px;
+}
+
 .sy-agent-input {
     display: block;
     width: 100%;
     box-sizing: border-box;
-    resize: none;
     border: none;
     outline: none;
     background: transparent;
@@ -494,9 +526,28 @@ summary.sy-agent-tool-head,
     font-size: var(--b3-font-size);
     font-family: inherit;
     color: var(--b3-theme-on-background);
+    overflow-y: auto;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    cursor: text;
 
-    &::placeholder {
+    &:empty::before {
+        content: attr(data-placeholder);
         color: var(--b3-theme-on-surface-light);
+        pointer-events: none;
+    }
+}
+
+/* 思源块引用:对齐原生样式(_wysiwyg.scss 的 block-ref 规则:主题色 + 透明度 + 悬停高亮)。
+   悬停预览弹层由思源全局 popover(initBlockPopover)自动提供,此处只负责视觉。 */
+.sy-agent-root span[data-type~="block-ref"] {
+    color: var(--b3-protyle-inline-blockref-color);
+    opacity: .86;
+    cursor: pointer;
+    transition: var(--b3-transition);
+
+    &:hover {
+        opacity: 1;
     }
 }
 
@@ -543,13 +594,115 @@ summary.sy-agent-tool-head,
 }
 
 /* 输入框右侧的会话统计(缓存命中率/输入输出字数) */
-.sy-chat-stats {
-    font-size: 11px;
-    color: var(--b3-theme-on-surface-light);
-    white-space: nowrap;
+/* 上下文用量圆环(对齐原生 agent-chat__tokens:轨道灰圈 + 主色弧,hover 弹出明细) */
+.sy-chat-tokens {
+    width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    align-self: center;
     flex-shrink: 0;
-    margin-right: 2px;
-    cursor: default;
+    cursor: pointer;
+    border-radius: var(--b3-border-radius);
+    color: var(--b3-theme-on-surface-light);
+    margin: 0 2px;
+
+    &:hover {
+        color: var(--b3-theme-on-background);
+        background-color: var(--b3-theme-surface);
+    }
+
+    &.fn__none {
+        display: none;
+    }
+
+    svg {
+        width: 16px;
+        height: 16px;
+    }
+}
+
+.sy-chat-tokens-track {
+    fill: none;
+    stroke: var(--b3-scroll-color);
+}
+
+.sy-chat-tokens-arc {
+    fill: none;
+    stroke: var(--b3-theme-primary);
+    stroke-linecap: round;
+    transform: rotate(-90deg);
+    transform-origin: 50% 50%;
+}
+
+/* 上下文用量明细浮层(对齐原生 agent-token-popup) */
+.sy-token-popup {
+    position: fixed;
+    width: 280px;
+    padding: 8px 0;
+
+    .b3-menu__items {
+        display: flex;
+        flex-direction: column;
+    }
+}
+
+.sy-token-popup__total {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 14px;
+    font-weight: 600;
+    color: var(--b3-theme-on-background);
+}
+
+.sy-token-popup__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 3px 14px;
+    font-size: 13px;
+    color: var(--b3-theme-on-surface);
+}
+
+.sy-token-popup__label {
+    flex-shrink: 0;
+}
+
+.sy-token-popup__value {
+    margin-left: 12px;
+    flex-shrink: 0;
+    color: var(--b3-theme-on-surface-light);
+}
+
+.sy-token-popup__divider {
+    height: 1px;
+    margin: 4px 10px;
+    background: var(--b3-border-color);
+}
+
+.sy-token-popup__bar {
+    height: 4px;
+    margin: 6px 10px 4px;
+    border-radius: 2px;
+    background: var(--b3-border-color);
+    overflow: hidden;
+
+    > span {
+        display: block;
+        height: 100%;
+        border-radius: 2px;
+        background: var(--b3-theme-primary);
+    }
+}
+
+/* 窄面板适配:对话框宽度不足时,隐藏图标旁的文字标签(思考强度/模型名),只留图标 */
+@container (max-width: 300px) {
+    .sy-chat-thinking-label,
+    .sy-chat-model-label {
+        display: none;
+    }
 }
 
 /* 思考徽标关闭态弱化 / 图片按钮在不支持图片的模型下置灰 */
