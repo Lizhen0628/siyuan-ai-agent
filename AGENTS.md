@@ -11,6 +11,6 @@
 
 ## 技术要点
 
-- 插件基于 pi 引擎(@mariozechner/pi-ai + pi-agent-core),对话窗口挂在右侧 Dock。
+- 对话窗口挂在右侧 Dock。
 - 悬停预览等能力优先复用思源全局机制(如 `initBlockPopover` 对 `data-type="block-ref"` + `data-id` 元素文档级生效),样式对齐原生 `_wysiwyg.scss`。
 - 原生智能体实现参考:`app/src/layout/dock/agent/`(siyuan-note/siyuan 仓库)。
