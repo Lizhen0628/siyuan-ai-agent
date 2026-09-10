@@ -4,36 +4,47 @@
  *     模型参数、智能体行为(确认开关/系统提示词/会话管理)、关于。
  */
 import {Dialog, showMessage} from "siyuan";
+import type {App} from "siyuan";
 import {getModels} from "@mariozechner/pi-ai";
-import type {AgentApi, AgentPluginConfig} from "./agent-runner";
+import type {AgentApi, AgentModelEntry, AgentPluginConfig} from "./agent-runner";
 import {DEFAULT_CONFIG, DEFAULT_SYSTEM_PROMPT} from "./agent-runner";
 import {PROVIDER_GROUPS, findCatalogModel, listProviders, providerMeta} from "./provider-catalog";
 import type {ProviderMeta} from "./provider-catalog";
 import {listUpstreamModels, testChat, testConnection} from "./model-service";
 import type {TestOutcome, UpstreamModelInfo} from "./model-service";
-import pkg from "../package.json";
+import {ComboBox} from "./combo-box";
+import type {ComboItem} from "./combo-box";
+import {BUILTIN_SKILLS, refreshUserSkills} from "./skills";
+import type {SkillInfo} from "./skills";
+import {WRITE_TOOLS, createSiyuanTools} from "./tools";
+import {SiYuanClient} from "./siyuan-client";
 
 export interface SettingsDialogOptions {
     getConfig: () => AgentPluginConfig;
     onSave: (config: AgentPluginConfig) => void;
     onClearSession: () => Promise<void> | void;
     sessionMessageCount: () => number;
+    /** 思源 App 实例,能力页用它构造含前端能力的完整工具清单。 */
+    app?: App;
 }
 
-type PageId = "provider" | "params" | "behavior" | "about";
+type PageId = "provider" | "params" | "skills" | "capabilities" | "behavior";
 
+/** 设置侧边栏图标:直接使用思源原生图标精灵(appearance/icons)。 */
 const ICONS: Record<PageId, string> = {
-    provider: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/></svg>`,
-    params: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3"/><path d="M1 14h6M9 8h6M17 16h6"/></svg>`,
-    behavior: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`,
-    about: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>`,
+    provider: `<svg><use xlink:href="#iconCloud"/></svg>`,
+    params: `<svg><use xlink:href="#iconAlignSettings"/></svg>`,
+    skills: `<svg><use xlink:href="#iconPlugin"/></svg>`,
+    capabilities: `<svg><use xlink:href="#iconPlugZap"/></svg>`,
+    behavior: `<svg><use xlink:href="#iconSparkles"/></svg>`,
 };
 
 const PAGE_TITLES: Record<PageId, string> = {
     provider: "模型服务",
     params: "模型参数",
+    skills: "技能",
+    capabilities: "能力",
     behavior: "智能体行为",
-    about: "关于",
 };
 
 const API_OPTIONS: {value: AgentApi; label: string}[] = [
@@ -42,6 +53,18 @@ const API_OPTIONS: {value: AgentApi; label: string}[] = [
     {value: "anthropic-messages", label: "anthropic-messages(Claude 系)"},
     {value: "google-generative-ai", label: "google-generative-ai(Gemini 系)"},
 ];
+
+const CHECK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m9 11 3 3L22 4"/></svg>`;
+const WARN_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg>`;
+
+const MASK_CHAR = "\u2022";
+/** 密钥掩码:首末各保留 5 位,中间用圆点代替;过短的密钥全部掩码。 */
+function maskKey(k: string): string {
+    if (k.length <= 10) {
+        return MASK_CHAR.repeat(Math.max(k.length, 8));
+    }
+    return `${k.slice(0, 5)}${MASK_CHAR.repeat(6)}${k.slice(-5)}`;
+}
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
     const node = document.createElement(tag);
@@ -54,12 +77,13 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
     return node;
 }
 
-/** SiYuan 设置项行的通用结构:左侧标题+说明,右侧控件。 */
+/** SiYuan 设置项行的通用结构:左侧标题+说明,右侧控件。
+ *  注意用 div 而非 label:label 会让点击行内任意位置都聚焦到输入框,
+ *  导致掩码态的密钥输入框被意外聚焦并显示明文。 */
 function settingRow(title: string, desc: string | HTMLElement | undefined, controls: HTMLElement[]): HTMLElement {
-    const row = el("label", "b3-label fn__flex sy-agent-row");
-    row.style.display = "flex";
+    const row = el("div", "b3-label fn__flex sy-agent-row");
     const left = el("div", "fn__flex-1");
-    const head = el("div", "ft__on-surface", title);
+    const head = el("div", "sy-agent-row-title", title);
     left.append(head);
     if (typeof desc === "string") {
         left.append(el("div", "b3-label__text", desc));
@@ -74,17 +98,54 @@ function settingRow(title: string, desc: string | HTMLElement | undefined, contr
     return row;
 }
 
+/**
+ * 可折叠行(参考原生能力列表):头部为 > 展开图标 + 名称 + 控件,
+ * 描述/详情默认收起,点击头部展开,避免长描述撑乱列表。
+ */
+function foldRow(title: string, body: HTMLElement, controls: HTMLElement[]): HTMLElement {
+    const root = el("div", "sy-agent-fold");
+    const head = el("div", "fn__flex sy-agent-fold-head");
+    const arrow = el("span", "sy-agent-fold-arrow");
+    arrow.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>`;
+    head.append(arrow, el("div", "fn__flex-1 sy-agent-fold-name", title), ...controls);
+    const bodyEl = el("div", "sy-agent-fold-body fn__none");
+    bodyEl.append(body);
+    head.addEventListener("click", (e) => {
+        if ((e.target as HTMLElement).closest("input,select,button")) {
+            return;
+        }
+        const collapsed = bodyEl.classList.toggle("fn__none");
+        root.classList.toggle("sy-agent-fold--open", !collapsed);
+    });
+    root.append(head, bodyEl);
+    return root;
+}
+
 export class SettingsDialog {
     private dialog: Dialog | null = null;
     private readonly els: Record<string, any> = {};
     /** 服务端获取的模型缓存,provider/baseURL/协议变化时失效 */
     private fetchedModels: UpstreamModelInfo[] | null = null;
+    private modelsListEl: HTMLElement | null = null;
+    private modelCombos: ComboBox[] = [];
+    /** 技能页草稿(内置记禁用,用户记启用)与能力页草稿 */
+    private skillsDraft = {builtinDisabled: new Set<string>(), userEnabled: new Set<string>()};
+    private capsDraft = {disabled: new Set<string>(), approval: {} as Record<string, "follow" | "always" | "auto">};
+    private userSkills: SkillInfo[] = [];
     private busy = false;
 
     constructor(private readonly options: SettingsDialogOptions) {}
 
     open(): void {
         const cfg = this.options.getConfig();
+        this.skillsDraft = {
+            builtinDisabled: new Set(cfg.skills?.builtinDisabled ?? []),
+            userEnabled: new Set(cfg.skills?.userEnabled ?? []),
+        };
+        this.capsDraft = {
+            disabled: new Set(cfg.capabilities?.disabled ?? []),
+            approval: {...(cfg.capabilities?.approval ?? {})},
+        };
         const root = el("div", "sy-agent-settings");
 
         const nav = el("div", "sy-agent-settings-nav");
@@ -137,7 +198,7 @@ export class SettingsDialog {
     private buildStatusChip(): HTMLElement {
         const cfg = this.options.getConfig();
         const chip = el("div", "sy-agent-status-chip");
-        const ok = Boolean(cfg.apiKey && cfg.modelId);
+        const ok = Boolean(cfg.apiKey && cfg.models?.some((m) => m.enabled && m.id));
         chip.append(el("span", ok ? "sy-agent-dot sy-agent-dot--ok" : "sy-agent-dot"));
         chip.append(el("span", undefined, ok ? "已配置" : "未配置"));
         return chip;
@@ -158,10 +219,12 @@ export class SettingsDialog {
             this.buildProviderPage(page, cfg);
         } else if (id === "params") {
             this.buildParamsPage(page, cfg);
+        } else if (id === "skills") {
+            this.buildSkillsPage(page);
+        } else if (id === "capabilities") {
+            this.buildCapabilitiesPage(page);
         } else if (id === "behavior") {
             this.buildBehaviorPage(page, cfg);
-        } else {
-            this.buildAboutPage(page);
         }
     }
 
@@ -176,7 +239,7 @@ export class SettingsDialog {
             const og = el("optgroup");
             og.label = group.label;
             for (const m of metas) {
-                const opt = el("option", undefined, m.modelCount > 0 ? `${m.label}(${m.modelCount})` : m.label);
+                const opt = el("option", undefined, m.label);
                 opt.value = m.id;
                 og.append(opt);
             }
@@ -191,27 +254,43 @@ export class SettingsDialog {
         this.renderProviderHint(providerHint, providerMeta(providerSel.value));
         this.els.providerHint = providerHint;
 
-        // API Key
+        // API Key:失焦掩码显示首末各 5 位,聚焦恢复明文以便编辑
         const keyInput = el("input", "b3-text-field") as HTMLInputElement;
-        keyInput.type = "password";
         keyInput.placeholder = "sk-…";
-        keyInput.style.width = "280px";
-        keyInput.value = cfg.apiKey;
+        keyInput.spellcheck = false;
+        keyInput.autocomplete = "off";
         keyInput.addEventListener("input", () => {
             this.fetchedModels = null;
         });
-        const eyeBtn = el("button", "b3-button b3-button--small sy-agent-icon-btn", "👁");
-        eyeBtn.title = "显示/隐藏密钥";
-        eyeBtn.addEventListener("click", () => {
-            keyInput.type = keyInput.type === "password" ? "text" : "password";
+        keyInput.addEventListener("focus", () => {
+            const real = keyInput.dataset.real;
+            if (real && keyInput.value === maskKey(real)) {
+                keyInput.value = real;
+            }
         });
+        keyInput.addEventListener("blur", () => {
+            const v = keyInput.value.trim();
+            if (v) {
+                keyInput.dataset.real = v;
+                keyInput.value = maskKey(v);
+            } else {
+                delete keyInput.dataset.real;
+            }
+        });
+        if (cfg.apiKey) {
+            keyInput.dataset.real = cfg.apiKey;
+            keyInput.value = maskKey(cfg.apiKey);
+        }
         this.els.apiKey = keyInput;
-        page.append(settingRow("API Key / Token", "密钥仅保存在本地思源工作空间,不会上传", [keyInput, eyeBtn]));
+        page.append(settingRow(
+            "API Key / Token",
+            "密钥仅保存在本地思源工作空间;失焦后掩码显示首末各 5 位,聚焦可编辑",
+            [keyInput],
+        ));
 
         // Base URL
         const baseInput = el("input", "b3-text-field") as HTMLInputElement;
         baseInput.placeholder = "https://api.example.com/v1";
-        baseInput.style.width = "330px";
         baseInput.value = cfg.baseURL;
         baseInput.addEventListener("change", () => {
             this.fetchedModels = null;
@@ -237,46 +316,44 @@ export class SettingsDialog {
         this.els.api = apiSel;
         page.append(settingRow("接口协议", "决定 pi 使用哪种请求格式,选择内置服务商时按目录自动带出", [apiSel]));
 
-        // 模型
-        const modelSel = el("select", "b3-select sy-agent-model-select");
-        modelSel.addEventListener("change", () => this.onModelSelect(modelSel.value));
-        this.els.model = modelSel;
-        const fetchBtn = el("button", "b3-button b3-button--outline", "获取上游模型");
+        // 模型列表(参考原生 设置-人工智能-API 提供商:可添加/启停多个模型)
+        const modelsRow = el("div", "sy-agent-row sy-agent-row--block");
+        const modelsHead = el("div", "fn__flex sy-agent-models-head");
+        const headLeft = el("div", "fn__flex-1");
+        headLeft.append(
+            el("div", "sy-agent-row-title", "模型"),
+            el("div", "b3-label__text", "可添加多个模型并分别启停;输入可过滤内置目录,没有的直接输 ID;对话面板输入区可切换当前模型"),
+        );
+        const fetchBtn = el("button", "b3-button b3-button--outline sy-agent-btn-flex", "获取上游模型");
         fetchBtn.addEventListener("click", () => void this.fetchModels(fetchBtn));
         this.els.fetchBtn = fetchBtn;
-        page.append(settingRow(
-            "模型",
-            "下拉为 pi 内置目录推荐;点「获取上游模型」拉取服务端实际支持的模型列表",
-            [modelSel, fetchBtn],
-        ));
-
-        const overrideInput = el("input", "b3-text-field") as HTMLInputElement;
-        overrideInput.placeholder = "留空则使用上方下拉选择的模型";
-        overrideInput.style.width = "330px";
-        overrideInput.value = "";
-        this.els.modelOverride = overrideInput;
-        page.append(settingRow("模型 ID 手动覆盖", "上游目录里没有的模型(如中转站新模型)在此填写", [overrideInput]));
-
-        // 测试区
-        const testRow = el("div", "sy-agent-test");
-        const connBtn = el("button", "b3-button b3-button--outline", "测试连接");
-        connBtn.addEventListener("click", () => void this.runTest("connection", connBtn));
-        const chatBtn = el("button", "b3-button b3-button--outline", "发送测试消息");
-        chatBtn.addEventListener("click", () => void this.runTest("chat", chatBtn));
-        const btns = el("div", "sy-agent-test-btns");
-        btns.append(connBtn, chatBtn);
-        testRow.append(btns);
+        const addBtn = el("button", "b3-button b3-button--outline sy-agent-btn-flex");
+        addBtn.innerHTML = `<svg class="b3-button__icon"><use xlink:href="#iconAdd"/></svg><span>添加模型</span>`;
+        addBtn.addEventListener("click", () => this.addModelRow({id: "", enabled: true}));
+        // 与上方标准行保持一致的列结构:文字在左列,两个按钮在右侧控件列(320px)内均分
+        const headRight = el("div", "sy-agent-row-ctl");
+        headRight.append(fetchBtn, addBtn);
+        modelsHead.append(headLeft, headRight);
+        const modelsList = el("div", "sy-agent-models");
+        modelsRow.append(modelsHead, modelsList);
+        // 行内测试结果展示区(最近一次测试的结果)
         const result = el("div", "sy-agent-result fn__none");
         const resultMsg = el("div", "sy-agent-result-msg");
         const resultDetails = el("pre", "sy-agent-result-details fn__none");
         result.append(resultMsg, resultDetails);
-        testRow.append(result);
         this.els.result = result;
         this.els.resultMsg = resultMsg;
         this.els.resultDetails = resultDetails;
-        page.append(testRow);
-
-        this.rebuildModelOptions(cfg.modelId);
+        modelsRow.append(result);
+        page.append(modelsRow);
+        this.modelsListEl = modelsList;
+        this.modelCombos = [];
+        for (const m of cfg.models) {
+            this.addModelRow(m);
+        }
+        if (cfg.models.length === 0) {
+            this.addModelRow({id: "", enabled: true});
+        }
     }
 
     private renderProviderHint(hint: HTMLElement, meta: ProviderMeta): void {
@@ -303,7 +380,6 @@ export class SettingsDialog {
 
     private onProviderChange(meta: ProviderMeta): void {
         this.fetchedModels = null;
-        this.els.modelOverride.value = "";
         if (meta.id !== "custom") {
             if (meta.defaultBase) {
                 this.els.baseURL.value = meta.defaultBase;
@@ -318,73 +394,118 @@ export class SettingsDialog {
         if (this.els.providerHint) {
             this.renderProviderHint(this.els.providerHint, meta);
         }
-        this.rebuildModelOptions("");
+        this.refreshModelCombos();
     }
 
-    private onModelSelect(modelId: string): void {
-        if (this.els.modelOverride.value.trim()) {
+    /** 添加一行模型配置(原生行:启用开关 + 模型 ID + 显示名 + 上下文 + 删除)。 */
+    private addModelRow(entry: AgentModelEntry): void {
+        const list = this.modelsListEl;
+        if (!list) {
             return;
         }
-        const cfg = this.collectDraft();
-        const catalog = findCatalogModel(cfg.provider, modelId);
-        if (catalog) {
-            this.els.context.value = String(catalog.contextWindow);
-            this.els.maxTokens.value = String(catalog.maxTokens);
+        const row = el("div", "fn__flex sy-agent-model-row");
+
+        const sw = el("input", "b3-switch fn__flex-center") as HTMLInputElement;
+        sw.type = "checkbox";
+        sw.checked = entry.enabled;
+        sw.title = "启用";
+        sw.dataset.field = "enabled";
+
+        const combo = new ComboBox("模型 ID");
+        combo.wrap.style.flex = "1.4";
+        combo.input.value = entry.id;
+        combo.input.dataset.field = "id";
+        combo.setItems(this.modelCandidates());
+        combo.onChange = (v) => this.fillRowParams(row, v);
+        combo.input.addEventListener("change", () => this.fillRowParams(row, combo.input.value.trim()));
+        this.modelCombos.push(combo);
+
+        const nameInput = el("input", "b3-text-field") as HTMLInputElement;
+        nameInput.placeholder = "显示名(可选)";
+        nameInput.spellcheck = false;
+        nameInput.value = entry.displayName ?? "";
+        nameInput.dataset.field = "displayName";
+        nameInput.style.flex = "1";
+
+        const ctxInput = el("input", "b3-text-field sy-agent-model-ctx") as HTMLInputElement;
+        ctxInput.type = "number";
+        ctxInput.placeholder = "上下文";
+        ctxInput.title = "上下文窗口 tokens,留空用「模型参数」页默认值";
+        ctxInput.value = entry.contextWindow ? String(entry.contextWindow) : "";
+        ctxInput.dataset.field = "contextWindow";
+
+        const del = el("button", "b3-button b3-button--remove b3-button--icon ariaLabel");
+        del.setAttribute("aria-label", "删除");
+        del.setAttribute("data-position", "north");
+        del.innerHTML = `<svg><use xlink:href="#iconTrashcan"/></svg>`;
+        del.addEventListener("click", () => {
+            const idx = this.modelCombos.indexOf(combo);
+            if (idx >= 0) {
+                this.modelCombos.splice(idx, 1);
+            }
+            row.remove();
+        });
+
+        // 行内测试按钮(只测当前行的模型)
+        const connBtn = el("button", "b3-button b3-button--outline b3-button--icon ariaLabel");
+        connBtn.setAttribute("aria-label", "测试连接");
+        connBtn.setAttribute("data-position", "north");
+        connBtn.innerHTML = `<svg><use xlink:href="#iconPlugZap"/></svg>`;
+        connBtn.addEventListener("click", () => void this.runRowTest(row, "connection", connBtn));
+        const chatBtn = el("button", "b3-button b3-button--outline b3-button--icon ariaLabel");
+        chatBtn.setAttribute("aria-label", "发送测试消息");
+        chatBtn.setAttribute("data-position", "north");
+        chatBtn.innerHTML = `<svg><use xlink:href="#iconSend"/></svg>`;
+        chatBtn.addEventListener("click", () => void this.runRowTest(row, "chat", chatBtn));
+
+        // 顺序:模型 ID | 显示名 | 上下文 | 启用开关 | 删除 | 测试连接 | 发送测试消息
+        row.append(combo.wrap, nameInput, ctxInput, sw, del, connBtn, chatBtn);
+        list.append(row);
+    }
+
+    /** 选中目录/上游模型时带出该行的上下文窗口与接口协议。 */
+    private fillRowParams(row: HTMLElement, modelId: string): void {
+        if (!modelId) {
+            return;
+        }
+        const catalog = findCatalogModel(this.els.provider?.value ?? "", modelId);
+        if (!catalog) {
+            return;
+        }
+        const ctxInput = row.querySelector<HTMLInputElement>('[data-field="contextWindow"]');
+        if (ctxInput) {
+            ctxInput.value = String(catalog.contextWindow);
+        }
+        if (catalog.api && this.els.api) {
             this.els.api.value = catalog.api;
         }
     }
 
-    /** 重建模型下拉:内置目录 + 服务端获取 + 当前值兜底。 */
-    private rebuildModelOptions(currentId: string): void {
-        const sel = this.els.model as HTMLSelectElement;
-        sel.textContent = "";
-        const cfg = this.collectDraft();
-        const catalogModels = catalogOf(cfg.provider);
-        if (catalogModels.length > 0) {
-            const og = el("optgroup");
-            og.label = `pi 内置目录(${catalogModels.length})`;
-            for (const m of catalogModels) {
-                const o = el("option", undefined, `${m.id} · ${Math.round(m.contextWindow / 1000)}k ctx`);
-                o.value = m.id;
-                og.append(o);
+    /** 模型候选(内置目录 + 服务端获取,去重)。 */
+    private modelCandidates(): ComboItem[] {
+        const seen = new Set<string>();
+        const items: ComboItem[] = [];
+        for (const m of catalogOf(this.els.provider?.value ?? "")) {
+            if (seen.has(m.id)) {
+                continue;
             }
-            sel.append(og);
+            seen.add(m.id);
+            items.push({value: m.id, note: `${Math.round(m.contextWindow / 1000)}k ctx`, group: "内置目录"});
         }
-        if (this.fetchedModels && this.fetchedModels.length > 0) {
-            const og = el("optgroup");
-            og.label = `服务端获取(${this.fetchedModels.length})`;
-            for (const m of this.fetchedModels) {
-                const o = el("option", undefined, m.name ? `${m.id} · ${m.name}` : m.id);
-                o.value = m.id;
-                og.append(o);
+        for (const m of this.fetchedModels ?? []) {
+            if (seen.has(m.id)) {
+                continue;
             }
-            sel.append(og);
+            seen.add(m.id);
+            items.push({value: m.id, note: m.name || undefined, group: "服务端获取"});
         }
-        const selected = currentId || this.els.modelOverride?.value?.trim() || "";
-        const known = [...sel.options].some((o) => o.value === selected);
-        if (selected) {
-            if (!known) {
-                const og = el("optgroup");
-                og.label = "当前配置";
-                const o = el("option", undefined, `${selected}(不在列表中)`);
-                o.value = selected;
-                og.append(o);
-                sel.append(og);
-            }
-            sel.value = selected;
-        } else if (sel.options.length > 0) {
-            sel.value = "";
-            const placeholder = el("option", undefined, "— 请选择模型 —");
-            placeholder.value = "";
-            placeholder.selected = true;
-            placeholder.disabled = true;
-            sel.insertBefore(placeholder, sel.firstChild);
-        } else {
-            const placeholder = el("option", undefined, "— 获取上游模型或手动填写 —");
-            placeholder.value = "";
-            placeholder.selected = true;
-            placeholder.disabled = true;
-            sel.append(placeholder);
+        return items;
+    }
+
+    private refreshModelCombos(): void {
+        const items = this.modelCandidates();
+        for (const combo of this.modelCombos) {
+            combo.setItems(items);
         }
     }
 
@@ -399,11 +520,10 @@ export class SettingsDialog {
         try {
             const {models, latencyMs} = await listUpstreamModels(this.collectDraft());
             this.fetchedModels = models;
-            const current = this.collectDraft().modelId;
-            this.rebuildModelOptions(current);
+            this.refreshModelCombos();
             this.renderResult({
                 ok: true,
-                message: `已获取 ${models.length} 个模型(${latencyMs}ms),可在「模型」下拉中选择`,
+                message: `已获取 ${models.length} 个模型(${latencyMs}ms),各模型行的输入框可直接过滤选择`,
             });
         } catch (e: any) {
             this.renderResult({ok: false, message: e?.message ? String(e.message) : String(e)});
@@ -414,22 +534,31 @@ export class SettingsDialog {
         }
     }
 
-    private async runTest(kind: "connection" | "chat", btn: HTMLButtonElement): Promise<void> {
+    /** 行内测试:只针对该行的模型生效(连接测试与具体模型无关,聊天测试用当前行模型)。 */
+    private async runRowTest(row: HTMLElement, kind: "connection" | "chat", btn: HTMLButtonElement): Promise<void> {
         if (this.busy) {
+            return;
+        }
+        const modelId = (row.querySelector<HTMLInputElement>('[data-field="id"]')?.value ?? "").trim();
+        if (kind === "chat" && !modelId) {
+            showMessage("请先填写模型 ID", 3000, "error");
             return;
         }
         this.busy = true;
         btn.disabled = true;
-        const old = btn.textContent;
-        btn.textContent = "测试中…";
         try {
             const cfg = this.collectDraft();
+            // 指定用当前行的模型测试(即便它未启用/未设为活跃模型)
+            cfg.activeModelId = modelId;
+            cfg.models = cfg.models.map((m) => (m.id === modelId ? {...m, enabled: true} : m));
+            if (!cfg.models.some((m) => m.id === modelId) && modelId) {
+                cfg.models.push({id: modelId, enabled: true});
+            }
             const outcome: TestOutcome = kind === "connection" ? await testConnection(cfg) : await testChat(cfg);
             this.renderResult(outcome);
         } finally {
             this.busy = false;
             btn.disabled = false;
-            btn.textContent = old;
         }
     }
 
@@ -439,7 +568,10 @@ export class SettingsDialog {
         const details = this.els.resultDetails as HTMLElement;
         box.classList.remove("fn__none", "sy-agent-result--ok", "sy-agent-result--err");
         box.classList.add(outcome.ok ? "sy-agent-result--ok" : "sy-agent-result--err");
-        msg.textContent = `${outcome.ok ? "✅" : "❌"} ${outcome.message}`;
+        msg.textContent = "";
+        const ic = el("span", "sy-agent-result-ic");
+        ic.innerHTML = outcome.ok ? CHECK_ICON : WARN_ICON;
+        msg.append(ic, document.createTextNode(outcome.message));
         if (outcome.details) {
             details.textContent = outcome.details;
             details.classList.remove("fn__none");
@@ -452,19 +584,156 @@ export class SettingsDialog {
     private buildParamsPage(page: HTMLElement, cfg: AgentPluginConfig): void {
         const ctx = el("input", "b3-text-field") as HTMLInputElement;
         ctx.type = "number";
-        ctx.style.width = "160px";
         ctx.value = String(cfg.contextWindow);
         this.els.context = ctx;
         page.append(settingRow("上下文窗口 (tokens)", "模型上下文长度,用于本地估算与截断;选择目录模型时自动带出", [ctx]));
 
         const max = el("input", "b3-text-field") as HTMLInputElement;
         max.type = "number";
-        max.style.width = "160px";
         max.value = String(cfg.maxTokens);
         this.els.maxTokens = max;
         page.append(settingRow("最大输出 tokens", "单次回复的输出上限", [max]));
 
         page.append(el("div", "b3-label__text sy-agent-hint", "提示:这两项会在「模型服务」页选择 pi 目录中的模型时自动填充。"));
+    }
+
+    // ---------------------------------------------------------------- 技能
+    private buildSkillsPage(page: HTMLElement): void {
+        page.append(el("div", "b3-label__text sy-agent-hint",
+            "启用的技能会注入系统提示词,引导智能体按技能流程工作;启用越多 token 消耗越大。保存后下一轮对话生效。"));
+
+        const listEl = el("div", "sy-agent-skill-list");
+        page.append(listEl);
+        listEl.append(el("div", "b3-label__text sy-agent-hint", "正在加载技能…"));
+
+        // 打开设置面板时自动扫描 ~/.agents/skills 并统一渲染全部技能
+        void refreshUserSkills().then((userSkills) => {
+            if (!listEl.isConnected) {
+                return;
+            }
+            this.userSkills = userSkills;
+            listEl.textContent = "";
+            const all = [...BUILTIN_SKILLS, ...userSkills];
+            if (all.length === 0) {
+                listEl.append(el("div", "b3-label__text sy-agent-hint", "暂无可用的技能"));
+                return;
+            }
+            for (const skill of all) {
+                const isUser = skill.source === "user";
+                const sw = el("input", "b3-switch") as HTMLInputElement;
+                sw.type = "checkbox";
+                // 默认启用的内置技能记录禁用;默认关闭的(用户技能或 defaultEnabled:false 的内置技能)记录启用
+                const defaultOn = !isUser && skill.defaultEnabled !== false;
+                sw.checked = defaultOn
+                    ? !this.skillsDraft.builtinDisabled.has(skill.id)
+                    : this.skillsDraft.userEnabled.has(skill.id);
+                sw.addEventListener("change", () => {
+                    const set = defaultOn ? this.skillsDraft.builtinDisabled : this.skillsDraft.userEnabled;
+                    // 勾选状态与集合成员关系相反(默认开→记禁用;默认关→记启用)
+                    if (sw.checked !== defaultOn) {
+                        set.add(skill.id);
+                    } else {
+                        set.delete(skill.id);
+                    }
+                });
+                const body = el("div");
+                if (skill.description) {
+                    body.append(el("div", "b3-label__text", skill.description));
+                }
+                if (skill.path) {
+                    const pathLine = el("div", "b3-label__text");
+                    pathLine.append(el("code", undefined, skill.path));
+                    body.append(pathLine);
+                }
+                listEl.append(foldRow(skill.name, body, [sw]));
+            }
+        });
+    }
+
+    // ---------------------------------------------------------------- 能力
+    private buildCapabilitiesPage(page: HTMLElement): void {
+        page.append(el("div", "b3-label__text sy-agent-hint",
+            "控制智能体可以发现和调用的能力;每个已启用的能力都会增加 token 用量。保存后下一轮对话生效。"));
+
+        const tools = createSiyuanTools(new SiYuanClient(), this.options.app);
+        const writeSet = new Set<string>(WRITE_TOOLS as readonly string[]);
+
+        // 工具栏:搜索 + 统计 + 全部启用/禁用(参考原生能力选择器)
+        const toolbar = el("div", "fn__flex sy-agent-caps-toolbar");
+        const search = el("input", "b3-text-field fn__flex-1") as HTMLInputElement;
+        search.placeholder = "搜索能力名称或描述";
+        const count = el("span", "b3-label__text sy-agent-caps-count");
+        const enableAll = el("button", "b3-button b3-button--outline sy-agent-btn-flex", "全部启用");
+        const disableAll = el("button", "b3-button b3-button--outline sy-agent-btn-flex", "全部禁用");
+        toolbar.append(search, count, enableAll, disableAll);
+        page.append(toolbar);
+
+        const listEl = el("div", "sy-agent-caps-list");
+        page.append(listEl);
+
+        const updateCount = () => {
+            count.textContent = `已选择:${tools.length - this.capsDraft.disabled.size}/${tools.length}`;
+        };
+        const renderList = () => {
+            const kw = search.value.trim().toLowerCase();
+            listEl.textContent = "";
+            for (const tool of tools) {
+                if (kw && !`${tool.name} ${tool.label ?? ""} ${tool.description ?? ""}`.toLowerCase().includes(kw)) {
+                    continue;
+                }
+                const isWrite = writeSet.has(tool.name);
+                const sw = el("input", "b3-switch") as HTMLInputElement;
+                sw.type = "checkbox";
+                sw.checked = !this.capsDraft.disabled.has(tool.name);
+                sw.addEventListener("change", () => {
+                    if (sw.checked) {
+                        this.capsDraft.disabled.delete(tool.name);
+                    } else {
+                        this.capsDraft.disabled.add(tool.name);
+                    }
+                    updateCount();
+                });
+                const body = el("div");
+                body.append(el("div", "b3-label__text", tool.description ?? ""));
+                const meta = el("div", "b3-label__text");
+                meta.append(
+                    el("code", undefined, tool.name),
+                    el("span", `sy-agent-cap-badge${isWrite ? " sy-agent-cap-badge--write" : ""}`,
+                        (tool as any).frontend ? "前端" : isWrite ? "写" : "读"),
+                );
+                body.append(meta);
+                const controls: HTMLElement[] = [];
+                if (isWrite) {
+                    // 写能力的批准方式(参考原生能力批准方式)
+                    const sel = el("select", "b3-select sy-agent-cap-approval");
+                    for (const [v, label] of [["follow", "跟随全局"], ["always", "每次确认"], ["auto", "自动批准"]] as const) {
+                        const opt = el("option", undefined, label);
+                        opt.value = v;
+                        sel.append(opt);
+                    }
+                    sel.value = this.capsDraft.approval[tool.name] ?? "follow";
+                    sel.addEventListener("change", () => {
+                        this.capsDraft.approval[tool.name] = sel.value as "follow" | "always" | "auto";
+                    });
+                    controls.push(sel);
+                }
+                controls.push(sw);
+                listEl.append(foldRow(tool.label ?? tool.name, body, controls));
+            }
+            updateCount();
+        };
+        search.addEventListener("input", renderList);
+        enableAll.addEventListener("click", () => {
+            this.capsDraft.disabled.clear();
+            renderList();
+        });
+        disableAll.addEventListener("click", () => {
+            for (const t of tools) {
+                this.capsDraft.disabled.add(t.name);
+            }
+            renderList();
+        });
+        renderList();
     }
 
     // ---------------------------------------------------------------- 行为
@@ -475,14 +744,29 @@ export class SettingsDialog {
         this.els.confirmWrites = sw;
         page.append(settingRow("写操作需要确认", "创建/更新/插入/删除笔记前弹窗确认,拒绝后智能体不会重试", [sw]));
 
+        // 联网搜索的首选引擎(失败时自动尝试其余引擎)
+        const engineSel = el("select", "b3-select") as HTMLSelectElement;
+        for (const [v, label] of [["duckduckgo", "DuckDuckGo"], ["bing", "Bing"], ["baidu", "百度"], ["google", "Google"]] as const) {
+            const opt = el("option", undefined, label);
+            opt.value = v;
+            engineSel.append(opt);
+        }
+        engineSel.value = cfg.searchEngine ?? "duckduckgo";
+        this.els.searchEngine = engineSel;
+        page.append(settingRow("搜索引擎", "联网搜索(web_search)的首选引擎;无结果或被拦截时自动尝试其他引擎", [engineSel]));
+
         const ta = el("textarea", "b3-text-field fn__block sy-agent-prompt") as HTMLTextAreaElement;
         ta.rows = 12;
         ta.spellcheck = false;
         ta.value = cfg.systemPrompt || DEFAULT_SYSTEM_PROMPT;
         this.els.systemPrompt = ta;
-        const taRow = settingRow("系统提示词", "定义智能体的角色与工作准则,留空恢复默认", []);
-        taRow.append(ta);
-        page.append(taRow);
+        const promptRow = el("div", "sy-agent-row sy-agent-row--block");
+        promptRow.append(
+            el("div", "sy-agent-row-title", "系统提示词"),
+            el("div", "b3-label__text", "定义智能体的角色与工作准则,留空恢复默认"),
+            ta,
+        );
+        page.append(promptRow);
 
         const sessionText = el("span", undefined, `当前会话 ${this.options.sessionMessageCount()} 条消息`);
         this.els.sessionText = sessionText;
@@ -495,44 +779,44 @@ export class SettingsDialog {
         page.append(settingRow("会话管理", "会话持久保存在工作空间,重启思源后自动恢复", [clearBtn, sessionText]));
     }
 
-    // ---------------------------------------------------------------- 关于
-    private buildAboutPage(page: HTMLElement): void {
-        const list = el("div", "sy-agent-about");
-        const deps = pkg.dependencies as Record<string, string>;
-        const lines: [string, string][] = [
-            ["插件版本", `v${pkg.version}`],
-            ["智能体引擎", `@mariozechner/pi-ai ${deps["@mariozechner/pi-ai"] ?? ""} · @mariozechner/pi-agent-core ${deps["@mariozechner/pi-agent-core"] ?? ""}`],
-            ["开源仓库", "github.com/Lizhen0628/siyuan-agent"],
-        ];
-        for (const [k, v] of lines) {
-            const rowEl = el("div", "sy-agent-about-row");
-            rowEl.append(el("span", "sy-agent-about-key", k), el("span", "sy-agent-about-val", v));
-            list.append(rowEl);
-        }
-        page.append(list);
-        const notes = el("div", "b3-label__text");
-        for (const text of [
-            "· 密钥与配置明文保存在 data/storage/petal/siyuan-agent/ 下,请勿同步到公开仓库。",
-            "· 各家 Coding Plan(ChatGPT Codex、Kimi Coding、小米 Token 包等)可直接在「模型服务」选择对应服务商并粘贴 Token。",
-            "· OpenAI 兼容接口地址一般以 /v1 结尾;Anthropic 与 Google 由 pi 自动处理路径。",
-        ]) {
-            notes.append(el("div", undefined, text));
-        }
-        page.append(notes);
-    }
-
     // ---------------------------------------------------------------- 通用
     private collectDraft(): AgentPluginConfig {
+        const models: AgentModelEntry[] = [];
+        this.modelsListEl?.querySelectorAll<HTMLElement>(".sy-agent-model-row").forEach((row) => {
+            const id = (row.querySelector<HTMLInputElement>('[data-field="id"]')?.value ?? "").trim();
+            if (!id) {
+                return;
+            }
+            const displayName = (row.querySelector<HTMLInputElement>('[data-field="displayName"]')?.value ?? "").trim();
+            const ctx = Number(row.querySelector<HTMLInputElement>('[data-field="contextWindow"]')?.value) || undefined;
+            models.push({
+                id,
+                enabled: row.querySelector<HTMLInputElement>('[data-field="enabled"]')?.checked ?? true,
+                displayName: displayName || undefined,
+                contextWindow: ctx,
+            });
+        });
         return {
             provider: this.els.provider?.value ?? "custom",
             baseURL: (this.els.baseURL?.value ?? "").trim(),
-            apiKey: (this.els.apiKey?.value ?? "").trim(),
-            modelId: ((this.els.modelOverride?.value ?? "").trim() || (this.els.model?.value ?? "")).trim(),
+            apiKey: (this.els.apiKey?.dataset?.real ?? this.els.apiKey?.value ?? "").trim(),
+            models,
+            activeModelId: this.options.getConfig().activeModelId,
             api: (this.els.api?.value ?? "openai-completions") as AgentApi,
             contextWindow: Number(this.els.context?.value) || DEFAULT_CONFIG.contextWindow,
             maxTokens: Number(this.els.maxTokens?.value) || DEFAULT_CONFIG.maxTokens,
             confirmWrites: this.els.confirmWrites?.checked ?? true,
+            searchEngine: (this.els.searchEngine?.value as AgentPluginConfig["searchEngine"]) || "duckduckgo",
             systemPrompt: this.els.systemPrompt?.value ?? "",
+            thinkingLevel: this.options.getConfig().thinkingLevel ?? "off",
+            skills: {
+                builtinDisabled: [...this.skillsDraft.builtinDisabled],
+                userEnabled: [...this.skillsDraft.userEnabled],
+            },
+            capabilities: {
+                disabled: [...this.capsDraft.disabled],
+                approval: {...this.capsDraft.approval},
+            },
         };
     }
 
@@ -541,14 +825,20 @@ export class SettingsDialog {
         this.els.baseURL.value = DEFAULT_CONFIG.baseURL;
         this.els.api.value = DEFAULT_CONFIG.api;
         this.els.provider.value = "custom";
-        this.els.modelOverride.value = "";
+        this.modelsListEl!.textContent = "";
+        this.modelCombos = [];
+        this.addModelRow({id: "", enabled: true});
         this.els.context.value = String(DEFAULT_CONFIG.contextWindow);
         this.els.maxTokens.value = String(DEFAULT_CONFIG.maxTokens);
         this.els.confirmWrites.checked = DEFAULT_CONFIG.confirmWrites;
+        if (this.els.searchEngine) {
+            this.els.searchEngine.value = DEFAULT_CONFIG.searchEngine;
+        }
         this.els.systemPrompt.value = DEFAULT_SYSTEM_PROMPT;
         this.els.apiKey.value = keepKey;
         this.fetchedModels = null;
-        this.rebuildModelOptions("");
+        this.skillsDraft = {builtinDisabled: new Set(), userEnabled: new Set()};
+        this.capsDraft = {disabled: new Set(), approval: {}};
         showMessage("已恢复默认值(保留 API Key),保存后生效", 2500);
     }
 
@@ -560,8 +850,8 @@ export class SettingsDialog {
             return;
         }
         this.options.onSave(cfg);
-        if (!cfg.apiKey || !cfg.modelId) {
-            showMessage("已保存,但 API Key 或模型 ID 为空,对话前请补全", 4000);
+        if (!cfg.apiKey || !cfg.models.some((m) => m.enabled)) {
+            showMessage("已保存,但 API Key 为空或未启用模型,对话前请补全", 4000);
         } else {
             showMessage("已保存,SiYuan Agent 将使用新配置", 2500);
         }

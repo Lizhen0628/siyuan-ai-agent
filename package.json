@@ -1,7 +1,7 @@
 {
   "name": "siyuan-agent",
-  "version": "0.3.0",
-  "description": "SiYuan agent plugin powered by pi (@mariozechner/pi-ai + @mariozechner/pi-agent-core)",
+  "version": "0.4.0",
+  "description": "SiYuan Agent - AI assistant plugin for SiYuan Note",
   "main": "index.js",
   "scripts": {
     "dev": "webpack --mode development",

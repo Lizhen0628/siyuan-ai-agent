@@ -4,7 +4,7 @@
  */
 import {completeSimple} from "@mariozechner/pi-ai";
 import type {AgentPluginConfig} from "./agent-runner";
-import {buildModel} from "./agent-runner";
+import {buildModel, resolveActiveModel} from "./agent-runner";
 
 export interface UpstreamModelInfo {
     id: string;
@@ -149,8 +149,8 @@ export async function testConnection(cfg: AgentPluginConfig): Promise<TestOutcom
 
 /** 发送测试消息:走 pi 完整管线(协议适配 + 流式),验证密钥、模型与协议是否真正可用。 */
 export async function testChat(cfg: AgentPluginConfig): Promise<TestOutcome> {
-    if (!cfg.modelId) {
-        return {ok: false, message: "请先选择或填写模型 ID"};
+    if (!resolveActiveModel(cfg).id) {
+        return {ok: false, message: "请先添加并启用模型"};
     }
     if (!cfg.apiKey) {
         return {ok: false, message: "请先填写 API Key"};

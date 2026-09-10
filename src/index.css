@@ -1,4 +1,4 @@
-/* ---------------------------------------------------------------- 对话侧边栏 */
+/* ---------------------------- 对话侧边栏(对齐原生 agent-chat) ---------------------------- */
 .sy-agent-root.sy-chat {
     display: flex;
     flex-direction: column;
@@ -6,436 +6,636 @@
     width: 100%;
     box-sizing: border-box;
     overflow: hidden;
+    position: relative;
 }
 
-.sy-chat-header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--b3-border-color);
-    flex-shrink: 0;
-}
-
-.sy-chat-logo {
-    display: inline-flex;
-    width: 26px;
-    height: 26px;
-    align-items: center;
-    justify-content: center;
-    border-radius: 50%;
-    background: var(--b3-theme-primary-lightest);
-    color: var(--b3-theme-primary);
-    flex-shrink: 0;
-
-    svg {
-        width: 15px;
-        height: 15px;
-    }
-}
-
-.sy-chat-titlegroup {
+/* 对话历史面板(覆盖在消息区上) */
+.sy-chat-history {
+    position: absolute;
+    top: 40px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 2;
     display: flex;
     flex-direction: column;
+    background: var(--b3-theme-background);
+}
+
+.sy-chat-history-head {
+    align-items: center;
+    padding: 8px 8px 8px 16px;
+    border-bottom: 1px solid var(--b3-border-color);
+}
+
+.sy-chat-history-title {
+    font-weight: 600;
+}
+
+.sy-chat-history-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 0;
+}
+
+.sy-chat-history-empty {
+    padding: 24px 16px;
+    text-align: center;
+}
+
+.sy-chat-history-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 8px 8px 8px 16px;
+    cursor: pointer;
+    border-radius: var(--b3-border-radius);
+}
+
+.sy-chat-history-item:hover {
+    background: var(--b3-list-hover);
+}
+
+.sy-chat-history-item--active {
+    background: var(--b3-list-hover);
+}
+
+.sy-chat-history-item-main {
     min-width: 0;
 }
 
-.sy-chat-title {
-    font-size: 13px;
-    font-weight: 600;
-    line-height: 1.2;
-}
-
-.sy-chat-model {
-    font-size: 11px;
-    color: var(--b3-theme-on-surface);
-    font-family: var(--b3-font-family-code);
-    max-width: 180px;
+.sy-chat-history-item-title {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-
-    &.unconfigured {
-        color: var(--b3-theme-error);
-    }
 }
 
-.sy-icon-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    padding: 0 !important;
-    border-radius: 4px;
-    color: var(--b3-theme-on-surface);
+.sy-chat-history-item-time {
+    font-size: 12px;
+    color: var(--b3-theme-on-surface-light);
+    margin-top: 2px;
+}
 
-    svg {
-        width: 15px;
-        height: 15px;
-    }
+/* 头部:原生 block__icons 行(标题 block__logo + block__icon 按钮) */
+.sy-chat-header {
+    flex-shrink: 0;
+}
 
-    &:hover {
-        background: var(--b3-list-hover);
-        color: var(--b3-theme-on-background);
-    }
+.sy-chat-title {
+    font-size: 14px;
+}
+
+/* 消息区 */
+.sy-agent-messages-wrap {
+    flex: 1;
+    min-height: 0;
+    position: relative;
+    display: flex;
+    flex-direction: column;
 }
 
 .sy-agent-messages {
     flex: 1;
-    overflow: auto;
+    overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 14px;
-    padding: 14px 12px;
+    gap: 12px;
+    padding: 12px 16px;
+    user-select: text;
 }
 
+/* "回到底部"悬浮按钮(原生 agent-chat__scroll-bottom) */
+.sy-chat-scroll-bottom {
+    position: absolute;
+    bottom: 12px;
+    right: 12px;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--b3-theme-background);
+    border: 1px solid var(--b3-border-color);
+    box-shadow: var(--b3-tooltips-shadow);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--b3-theme-on-surface);
+    z-index: 5;
+
+    svg {
+        width: 14px;
+        height: 14px;
+    }
+
+    &:hover {
+        color: var(--b3-theme-on-background);
+    }
+}
+
+/* 消息 */
 .sy-agent-msg {
     display: flex;
     flex-direction: column;
-
-    .sy-msg-group {
-        display: flex;
-        flex-direction: column;
-        max-width: 92%;
-    }
+    max-width: 100%;
 
     &.user {
         align-items: flex-end;
-
-        .sy-msg-group {
-            align-items: flex-end;
-        }
-
-        .bubble {
-            background: var(--b3-theme-primary-lightest);
-            border-radius: 12px 12px 4px 12px;
-        }
     }
 
     &.assistant {
         align-items: flex-start;
-
-        .bubble {
-            background: var(--b3-list-hover);
-            border-radius: 12px 12px 12px 4px;
-        }
     }
 
     &.tool {
-        max-width: 92%;
-        width: 100%;
-    }
-
-    .bubble {
-        padding: 8px 12px;
-        line-height: 1.6;
-        font-size: 13px;
-        overflow-wrap: anywhere;
-
-        p {
-            margin: 4px 0;
-        }
-
-        pre {
-            overflow: auto;
-            padding: 8px;
-            border-radius: 6px;
-            background: var(--b3-theme-on-primary-light);
-            font-size: 12px;
-        }
-
-        code {
-            background: var(--b3-theme-on-primary-light);
-            padding: 1px 4px;
-            border-radius: 3px;
-            font-size: 12px;
-        }
-
-        ul,
-        ol {
-            padding-inline-start: 20px;
-            margin: 4px 0;
-        }
-
-        table {
-            border-collapse: collapse;
-            margin: 6px 0;
-            display: block;
-            max-width: 100%;
-            overflow-x: auto;
-
-            th,
-            td {
-                border: 1px solid var(--b3-border-color);
-                padding: 3px 8px;
-            }
-        }
-
-        blockquote {
-            border-inline-start: 3px solid var(--b3-border-color);
-            margin: 4px 0;
-            padding-inline-start: 8px;
-            color: var(--b3-theme-on-surface);
-        }
+        align-items: stretch;
     }
 }
 
-/* 悬停显示的消息操作(复制) */
+/* AI 消息无气泡,全宽;用户消息右侧气泡(surface 底 + 大圆角) */
+.sy-msg-body {
+    min-width: 0;
+    width: 100%;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    line-height: 1.5;
+    font-size: var(--b3-font-size);
+
+    p {
+        margin: 4px 0;
+    }
+
+    pre {
+        overflow: auto;
+        padding: 8px;
+        margin: 4px 0;
+        border-radius: var(--b3-border-radius);
+        background: var(--b3-theme-surface);
+        font-size: 12px;
+    }
+
+    code {
+        background: var(--b3-theme-surface);
+        padding: 1px 4px;
+        border-radius: var(--b3-border-radius-s);
+        font-size: 12px;
+    }
+
+    ul,
+    ol {
+        padding-inline-start: 20px;
+        margin: 4px 0;
+    }
+
+    table {
+        border-collapse: collapse;
+        margin: 6px 0;
+        display: block;
+        max-width: 100%;
+        overflow-x: auto;
+
+        th,
+        td {
+            border: 1px solid var(--b3-border-color);
+            padding: 3px 8px;
+        }
+    }
+
+    blockquote {
+        border-inline-start: 3px solid var(--b3-border-color);
+        margin: 4px 0;
+        padding-inline-start: 8px;
+        color: var(--b3-theme-on-surface);
+    }
+}
+
+.sy-agent-msg.user .sy-msg-body {
+    width: auto;
+    max-width: 80%;
+    background: var(--b3-theme-surface);
+    border-radius: var(--b3-border-radius-b);
+    padding: 8px 12px;
+    box-sizing: border-box;
+}
+
+/* 悬停显示的消息操作(复制):原生 block__icon 行 */
 .sy-msg-actions {
     display: flex;
     gap: 4px;
-    padding: 2px 2px 0;
+    justify-content: flex-end;
+    align-self: flex-end;
+    width: 100%;
     opacity: 0;
-    transition: opacity 0.12s ease;
+    transition: opacity 0.2s cubic-bezier(0, 0, 0.2, 1) 0ms;
+}
 
-    &.right {
-        justify-content: flex-end;
-    }
+.sy-agent-msg.user .sy-msg-actions {
+    width: auto;
 }
 
 .sy-agent-msg:hover .sy-msg-actions {
     opacity: 1;
 }
 
-.sy-msg-action {
-    display: inline-flex;
+/* 工具调用/结果卡片(原生 agent-chat__tool-card) */
+.sy-agent-tool-card {
+    border: 1px solid var(--b3-border-color);
+    border-radius: var(--b3-border-radius);
+    overflow: hidden;
+    font-size: 13px;
+    margin: 4px 0;
+    max-width: 100%;
+}
+
+.sy-agent-tool-head {
+    display: flex;
     align-items: center;
-    justify-content: center;
-    width: 22px;
-    height: 22px;
-    border-radius: 4px;
-    border: none;
-    background: transparent;
-    color: var(--b3-theme-on-surface);
-    cursor: pointer;
+    gap: 6px;
+    padding: 8px 12px;
+    color: var(--b3-theme-on-background);
+    line-height: 1.5;
 
     svg {
-        width: 13px;
-        height: 13px;
-    }
-
-    &:hover {
-        background: var(--b3-list-hover);
-        color: var(--b3-theme-on-background);
+        width: 14px;
+        height: 14px;
+        flex-shrink: 0;
     }
 }
 
-/* 空状态 */
-.sy-agent-empty {
-    margin: auto;
+.sy-agent-tool-title {
+    font-weight: 500;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sy-agent-tool-detail {
+    margin: 0;
+    padding: 4px 8px;
+    background: var(--b3-theme-surface);
+    color: var(--b3-theme-on-surface);
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 160px;
+    overflow-y: auto;
+    border-top: 1px solid var(--b3-border-color);
+}
+
+/* details 形式的工具结果 */
+summary.sy-agent-tool-head,
+.sy-agent-tool-result > summary {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    cursor: pointer;
+    user-select: none;
+    color: var(--b3-theme-on-background);
+    line-height: 1.5;
+    list-style: none;
+
+    &::-webkit-details-marker {
+        display: none;
+    }
+
+    svg {
+        width: 14px;
+        height: 14px;
+        flex-shrink: 0;
+    }
+}
+
+.sy-agent-tool-result.error > summary {
+    color: var(--b3-card-error-color);
+}
+
+/* 思考过程(原生 thinking 卡片:次级色标题行) */
+.sy-agent-thinking {
+    margin: 4px 0;
+
+    summary {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 0;
+        font-size: 13px;
+        cursor: pointer;
+        user-select: none;
+        color: var(--b3-theme-on-surface-light);
+        list-style: none;
+
+        &::-webkit-details-marker {
+            display: none;
+        }
+    }
+
+    .sy-agent-thinking-body {
+        font-size: 13px;
+        color: var(--b3-theme-on-surface);
+        line-height: 1.5;
+        white-space: pre-wrap;
+        word-break: break-word;
+        max-height: 240px;
+        overflow-y: auto;
+        padding: 8px 0;
+        border-top: 1px solid var(--b3-border-color);
+    }
+}
+
+/* 生成中等待(原生 mirror spinner) */
+.sy-agent-waiting {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+    color: var(--b3-theme-on-surface-light);
+}
+
+.sy-agent-spinner {
+    width: 10px;
+    height: 10px;
+    border: 2px solid var(--b3-theme-on-surface-light);
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: sy-agent-spin 0.8s linear infinite;
+}
+
+@keyframes sy-agent-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* 错误横幅(原生 body--error:卡片错误色 + 三角警告图标) */
+.sy-agent-error {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--b3-card-error-background);
+    color: var(--b3-card-error-color);
+    border-radius: var(--b3-border-radius);
+    padding: 8px 12px;
+    font-size: 13px;
+    margin: 8px 16px 0;
+    word-break: break-word;
+    flex-shrink: 0;
+
+    svg {
+        width: 14px;
+        height: 14px;
+        flex-shrink: 0;
+    }
+}
+
+/* 空状态(原生 agent-welcome) */
+.sy-agent-welcome {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 6px;
-    padding: 32px 12px;
+    text-align: center;
+    padding: 16px 24px;
+    gap: 12px;
+    margin: auto;
+}
+
+.sy-agent-welcome__greeting {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--b3-theme-on-surface);
+    margin-bottom: 4px;
+    white-space: pre-line;
+}
+
+.sy-agent-welcome__examples {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+    max-width: 300px;
+    margin-top: 8px;
+}
+
+.sy-agent-welcome__example {
+    padding: 8px 12px;
+    background: var(--b3-theme-surface);
+    border: 1px solid var(--b3-border-color);
+    border-radius: var(--b3-border-radius);
+    font-size: 13px;
+    color: var(--b3-theme-on-surface);
+    cursor: pointer;
+    text-align: left;
+    transition: var(--b3-transition);
+
+    &:hover {
+        background: var(--b3-theme-surface-light);
+        border-color: var(--b3-theme-primary);
+    }
+}
+
+.sy-agent-welcome__no-model {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    max-width: 320px;
+    margin-top: 12px;
+    padding: 20px 16px;
+    background: var(--b3-theme-surface);
+    border: 1px solid var(--b3-border-color);
+    border-radius: var(--b3-border-radius);
     text-align: center;
 }
 
-.sy-agent-empty-logo {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 44px;
-    height: 44px;
-    border-radius: 50%;
-    background: var(--b3-theme-primary-lightest);
-    color: var(--b3-theme-primary);
-    margin-bottom: 4px;
-
-    svg {
-        width: 24px;
-        height: 24px;
-    }
-}
-
-.sy-agent-empty-title {
-    font-size: 14px;
+.sy-agent-welcome__no-model-title {
+    font-size: 15px;
     font-weight: 600;
+    color: var(--b3-theme-on-surface);
 }
 
-.sy-agent-empty-sub {
-    font-size: 12px;
-    color: var(--b3-theme-on-surface);
+.sy-agent-welcome__no-model-tip {
+    font-size: 13px;
+    color: var(--b3-theme-on-surface-light);
     line-height: 1.5;
 }
 
-.sy-agent-empty-chips {
+.sy-agent-welcome__go-setting {
+    margin-top: 4px;
+    padding: 4px 14px;
+    font-size: 13px;
+}
+
+/* 输入区(原生 agent-chat__input-area:带边框圆角盒 + 按钮行) */
+.sy-chat-input-area {
+    background: var(--b3-theme-background);
+    border: 1px solid var(--b3-border-color);
+    border-radius: var(--b3-border-radius-b);
+    margin: 0 12px 12px;
+    padding: 8px;
+    flex-shrink: 0;
+}
+
+.sy-agent-input {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    resize: none;
+    border: none;
+    outline: none;
+    background: transparent;
+    box-shadow: none;
+    min-height: 24px;
+    max-height: 120px;
+    padding: 2px 4px;
+    line-height: 1.6;
+    font-size: var(--b3-font-size);
+    font-family: inherit;
+    color: var(--b3-theme-on-background);
+
+    &::placeholder {
+        color: var(--b3-theme-on-surface-light);
+    }
+}
+
+.sy-chat-buttons {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    min-width: 0;
+}
+
+/* 模型/思考徽标(原生 model-picker:b3-select--noborder + 图标 + 标签) */
+.sy-chat-combo {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 8px;
+    background-image: none;
+    white-space: nowrap;
+    flex: 0 1 auto;
+    min-width: 0;
+    height: auto;
+    line-height: 1.5;
+    width: auto;
+}
+
+.sy-chat-model-icon {
+    width: 14px;
+    height: 14px;
+    color: var(--b3-theme-on-surface);
+    flex-shrink: 0;
+}
+
+.sy-chat-model-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+    font-family: var(--b3-font-family-code);
+    font-size: 12px;
+}
+
+.sy-chat-model.unconfigured .sy-chat-model-label {
+    color: var(--b3-theme-error);
+}
+
+/* 输入框右侧的会话统计(缓存命中率/输入输出字数) */
+.sy-chat-stats {
+    font-size: 11px;
+    color: var(--b3-theme-on-surface-light);
+    white-space: nowrap;
+    flex-shrink: 0;
+    margin-right: 2px;
+    cursor: default;
+}
+
+/* 思考徽标关闭态弱化 / 图片按钮在不支持图片的模型下置灰 */
+.sy-chat-thinking.unconfigured .sy-chat-thinking-label {
+    color: var(--b3-theme-on-surface-light);
+}
+
+.sy-chat-attach.unconfigured {
+    opacity: 0.5;
+}
+
+/* 输入区图片附件缩略图条 */
+.sy-chat-attach-strip {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
-    justify-content: center;
-    margin-top: 10px;
+    margin-bottom: 8px;
 }
 
-.sy-agent-chip {
+.sy-chat-attach-item {
+    position: relative;
+    width: 48px;
+    height: 48px;
     border: 1px solid var(--b3-border-color);
+    border-radius: var(--b3-border-radius);
     background: var(--b3-theme-surface);
-    color: var(--b3-theme-on-background);
-    border-radius: 999px;
-    padding: 5px 12px;
-    font-size: 12px;
+
+    img {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        border-radius: 5px;
+    }
+}
+
+.sy-chat-attach-del {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--b3-theme-surface);
+    border: 1px solid var(--b3-border-color);
+    color: var(--b3-theme-on-surface);
     cursor: pointer;
 
     &:hover {
-        border-color: var(--b3-theme-primary);
-        color: var(--b3-theme-primary);
-        background: var(--b3-theme-primary-lightest);
-    }
-}
-
-/* 生成中等待动画 */
-.sy-agent-waiting {
-    display: inline-flex;
-    gap: 4px;
-    align-items: center;
-    padding: 10px 14px;
-
-    .dot {
-        width: 6px;
-        height: 6px;
-        border-radius: 50%;
-        background: var(--b3-theme-on-surface);
-        animation: sy-agent-blink 1.2s infinite ease-in-out;
-
-        &:nth-child(2) {
-            animation-delay: 0.2s;
-        }
-
-        &:nth-child(3) {
-            animation-delay: 0.4s;
-        }
-    }
-}
-
-@keyframes sy-agent-blink {
-    0%, 80%, 100% { opacity: 0.25; }
-    40% { opacity: 1; }
-}
-
-.sy-agent-tool-call {
-    font-size: 12px;
-    color: var(--b3-theme-on-surface);
-    background: var(--b3-list-hover);
-    border: 1px solid var(--b3-border-color);
-    border-radius: 8px;
-    padding: 4px 8px;
-    margin: 4px 0;
-    max-width: 100%;
-    overflow-wrap: anywhere;
-}
-
-.sy-agent-thinking {
-    font-size: 12px;
-    color: var(--b3-theme-on-surface);
-    margin: 4px 0;
-
-    summary {
-        cursor: pointer;
-        user-select: none;
-    }
-
-    div {
-        white-space: pre-wrap;
-        padding: 4px 8px;
-        background: var(--b3-list-hover);
-        border-radius: 6px;
-        max-height: 200px;
-        overflow: auto;
-    }
-}
-
-.sy-agent-tool-result {
-    font-size: 12px;
-    max-width: 100%;
-
-    summary {
-        cursor: pointer;
-        user-select: none;
-        color: var(--b3-theme-on-surface);
-    }
-
-    pre {
-        max-height: 200px;
-        overflow: auto;
-        background: var(--b3-theme-on-primary-light);
-        padding: 8px;
-        border-radius: 6px;
-        white-space: pre-wrap;
-        overflow-wrap: anywhere;
-    }
-
-    &.error summary {
         color: var(--b3-theme-error);
     }
-}
-
-.sy-agent-error {
-    background: var(--b3-theme-error-lighter, rgba(255, 0, 0, 0.08));
-    color: var(--b3-theme-error);
-    border-radius: 6px;
-    padding: 6px 10px;
-    font-size: 12px;
-    margin: 0 12px 8px;
-}
-
-/* 底部输入区 */
-.sy-chat-footer {
-    border-top: 1px solid var(--b3-border-color);
-    padding: 10px 12px 8px;
-    flex-shrink: 0;
-}
-
-.sy-chat-inputwrap {
-    display: flex;
-    gap: 8px;
-    align-items: flex-end;
-
-    .sy-agent-input {
-        flex: 1;
-        resize: none;
-        min-height: 34px;
-        max-height: 140px;
-        line-height: 1.5;
-        padding: 7px 10px;
-    }
-}
-
-.sy-chat-send {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 34px;
-    height: 34px;
-    border-radius: 50%;
-    border: none;
-    background: var(--b3-theme-primary);
-    color: var(--b3-theme-on-primary);
-    cursor: pointer;
-    flex-shrink: 0;
-    transition: opacity 0.12s ease;
 
     svg {
-        width: 15px;
-        height: 15px;
-    }
-
-    &:disabled {
-        opacity: 0.4;
-        cursor: default;
-    }
-
-    &.stopping {
-        background: var(--b3-theme-error);
-        color: var(--b3-theme-on-error);
+        width: 10px;
+        height: 10px;
     }
 }
 
-.sy-chat-hint {
-    font-size: 11px;
-    color: var(--b3-theme-on-surface);
-    padding: 6px 2px 0;
-    opacity: 0.75;
+/* 用户消息中的图片 */
+.sy-msg-img {
+    display: block;
+    max-width: 240px;
+    max-height: 240px;
+    border-radius: var(--b3-border-radius);
+    margin-bottom: 6px;
+}
+
+/* 打字机光标(原生 streaming-after 闪烁色块的竖线版) */
+.sy-agent-caret {
+    display: inline-block;
+    width: 2px;
+    height: 14px;
+    margin-left: 2px;
+    vertical-align: -2px;
+    background: var(--b3-theme-primary);
+    border-radius: 1px;
+    animation: sy-agent-caret-blink 1s ease-in-out infinite;
+}
+
+@keyframes sy-agent-caret-blink {
+    50% {
+        opacity: 0;
+    }
 }
 
 /* ------------------------------------------------------------------ 设置面板 */
@@ -465,6 +665,7 @@
     display: flex;
     flex-direction: column;
     border-right: 1px solid var(--b3-border-color);
+    background: var(--b3-theme-surface);
     padding: 8px 0;
     box-sizing: border-box;
 
@@ -489,6 +690,7 @@
     width: 16px;
     height: 16px;
     flex-shrink: 0;
+    color: var(--b3-theme-on-surface);
 
     svg {
         width: 100%;
@@ -503,13 +705,14 @@
     padding: 8px 18px;
     font-size: 12px;
     color: var(--b3-theme-on-surface);
+    border-top: 1px solid var(--b3-border-color);
 }
 
 .sy-agent-dot {
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: var(--b3-theme-error);
+    background: var(--b3-card-warning-color);
 
     &.sy-agent-dot--ok {
         background: var(--b3-theme-primary);
@@ -520,7 +723,7 @@
     flex: 1;
     min-width: 0;
     overflow: auto;
-    padding: 4px 24px 32px 16px;
+    padding: 8px 24px 32px;
     box-sizing: border-box;
 }
 
@@ -537,19 +740,36 @@
     padding: 14px 0;
     border-bottom: 1px solid var(--b3-border-color);
     gap: 12px;
+    align-items: center;
 
     &:last-of-type {
         border-bottom: none;
     }
 }
 
+.sy-agent-row--block {
+    display: block;
+}
+
+.sy-agent-row-title {
+    font-size: 14px;
+}
+
 .sy-agent-row-ctl {
     display: flex;
     align-items: center;
     gap: 8px;
+    width: 320px;
     flex-shrink: 0;
-    align-self: flex-start;
-    padding-top: 2px;
+    justify-content: flex-end;
+
+    /* 控件列宽度统一,输入框/下拉/组合框撑满,右边缘对齐 */
+    > .b3-text-field,
+    > .b3-select,
+    > .sy-agent-combo {
+        flex: 1;
+        min-width: 0;
+    }
 }
 
 .sy-agent-hint {
@@ -561,24 +781,6 @@
     color: var(--b3-card-warning-color, #d97706);
 }
 
-.sy-agent-model-select {
-    max-width: 340px;
-    min-width: 200px;
-}
-
-.sy-agent-icon-btn {
-    padding: 4px 8px !important;
-}
-
-.sy-agent-test {
-    padding: 14px 0;
-}
-
-.sy-agent-test-btns {
-    display: flex;
-    gap: 8px;
-}
-
 .sy-agent-result {
     margin-top: 10px;
     border-radius: 6px;
@@ -587,19 +789,33 @@
     line-height: 1.5;
 
     &.sy-agent-result--ok {
-        background: var(--b3-theme-primary-lightest);
+        background: var(--b3-card-success-background);
+        color: var(--b3-card-success-color);
     }
 
     &.sy-agent-result--err {
-        background: var(--b3-theme-error-lighter, rgba(255, 0, 0, 0.08));
+        background: var(--b3-card-error-background);
+        color: var(--b3-card-error-color);
     }
+}
+
+.sy-agent-result-msg {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+}
+
+.sy-agent-result-ic {
+    display: inline-flex;
+    flex-shrink: 0;
+    margin-top: 2px;
 }
 
 .sy-agent-result-details {
     margin: 6px 0 0;
     padding: 6px 8px;
     border-radius: 4px;
-    background: var(--b3-theme-on-primary-light);
+    background: var(--b3-theme-surface);
     font-size: 12px;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
@@ -614,10 +830,59 @@
     line-height: 1.6;
     resize: vertical;
     min-height: 180px;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 .sy-agent-about {
     padding: 12px 0;
+}
+
+/* 关于页品牌头部 */
+.sy-agent-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 0 12px;
+    border-bottom: 1px solid var(--b3-border-color);
+}
+
+.sy-agent-brand-logo {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    background: var(--b3-theme-primary-lightest);
+    color: var(--b3-theme-primary);
+    flex-shrink: 0;
+
+    svg {
+        width: 22px;
+        height: 22px;
+    }
+}
+
+.sy-agent-brand-name {
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.3;
+}
+
+.sy-agent-brand-ver {
+    font-size: 12px;
+    color: var(--b3-theme-on-surface);
+    font-family: var(--b3-font-family-code);
+}
+
+/* 注意事项卡片 */
+.sy-agent-notes {
+    margin-top: 12px;
+    background: var(--b3-theme-surface);
+    border-radius: 6px;
+    padding: 10px 14px;
+    line-height: 1.7;
 }
 
 .sy-agent-about-row {
@@ -640,5 +905,337 @@
     padding: 12px 24px;
     border-top: 1px solid var(--b3-border-color);
     flex-shrink: 0;
+}
+
+/* 「恢复默认」左置,与右侧主操作拉开距离 */
+.sy-agent-footer-reset {
+    margin-right: auto;
+}
+
+/* 行内小图标统一 13px,与思源图标体系(12-14px 线性图标)对齐 */
+.sy-agent-tool-call svg,
+.sy-agent-tool-result summary svg,
+.sy-agent-result-ic svg {
+    width: 13px;
+    height: 13px;
+    flex-shrink: 0;
+}
+
+/* ------------------------------------------------------------------ 组合框 */
+.sy-agent-combo {
+    display: flex;
+    min-width: 0;
+
+    > .b3-text-field {
+        flex: 1;
+        min-width: 0;
+        width: 100%;
+        box-sizing: border-box;
+    }
+}
+
+/* 浮层仿思源 b3-menu:菜单底色 + 对话框阴影 + 悬浮灰底 */
+.sy-agent-combo-pop {
+    position: fixed;
+    z-index: 210;
+    box-sizing: border-box;
+    background: var(--b3-menu-background);
+    border: 1px solid var(--b3-border-color);
+    border-radius: 6px;
+    box-shadow: var(--b3-dialog-shadow);
+    padding: 4px;
+    overflow: auto;
+    font-size: 13px;
+}
+
+.sy-agent-combo-label {
+    padding: 6px 8px 2px;
+    font-size: 11px;
+    color: var(--b3-theme-on-surface);
+    user-select: none;
+}
+
+.sy-agent-combo-item {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 5px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    color: var(--b3-theme-on-background);
+    user-select: none;
+
+    &.active,
+    &:hover {
+        background: var(--b3-list-hover);
+    }
+}
+
+.sy-agent-combo-id {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sy-agent-combo-note {
+    margin-left: auto;
+    flex-shrink: 0;
+    font-size: 12px;
+    color: var(--b3-theme-on-surface);
+}
+
+.sy-agent-combo-empty {
+    padding: 6px 8px;
+    font-size: 12px;
+    color: var(--b3-theme-on-surface);
+}
+
+/* 模型切换菜单中的当前项勾选 */
+.sy-agent-combo-check {
+    margin-left: auto;
+    flex-shrink: 0;
+    color: var(--b3-theme-primary);
+
+    svg {
+        width: 13px;
+        height: 13px;
+    }
+}
+
+/* 模型区块头部按钮:在 320px 控件列内均分,间距取 .sy-agent-row-ctl 的 gap */
+.sy-agent-btn-flex {
+    flex: 1 1 0;
+    width: auto;
+}
+
+/* 模型区块头部:标题+说明在左,获取上游模型在右且顶对齐 */
+.sy-agent-models-head {
+    align-items: flex-start;
+    gap: 12px;
+}
+/* 模型列表行(参考原生 config-ai-provider__model:开关 + ID + 显示名 + 上下文 + 删除) */
+.sy-agent-models {
+    margin-top: 8px;
+}
+
+.sy-agent-model-row {
+    gap: 8px;
+    align-items: center;
+    padding: 5px 0;
+}
+
+.sy-agent-model-row .sy-agent-combo {
+    flex: 1.4 1 0;
+    min-width: 0;
+}
+
+.sy-agent-model-row > .b3-text-field[data-field="displayName"] {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.sy-agent-model-ctx {
+    width: 96px;
+    flex-shrink: 0;
+}
+
+/* 模型列表行内图标按钮与结果区 */
+.sy-agent-model-row .b3-button--icon {
+    flex-shrink: 0;
+}
+
+.sy-agent-models + .sy-agent-result {
+    margin-top: 10px;
+}
+
+/* 能力页 */
+
+.sy-agent-caps-toolbar {
+    gap: 8px;
+    align-items: center;
+    margin: 8px 0 4px;
+}
+
+.sy-agent-caps-count {
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.sy-agent-cap-badge {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 0 6px;
+    border-radius: 3px;
+    font-size: 12px;
+    line-height: 18px;
+    background: var(--b3-card-success-background);
+    color: var(--b3-card-success-color);
+}
+
+.sy-agent-cap-badge--write {
+    background: var(--b3-card-warning-background);
+    color: var(--b3-card-warning-color);
+}
+
+.sy-agent-cap-approval {
+    width: 110px;
+    flex-shrink: 0;
+}
+
+/* 折叠行(技能/能力列表) */
+.sy-agent-fold {
+    border-radius: var(--b3-border-radius);
+}
+
+.sy-agent-fold:hover {
+    background: var(--b3-list-hover);
+}
+
+.sy-agent-fold-head {
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.sy-agent-fold-arrow {
+    flex-shrink: 0;
+    display: inline-flex;
+    color: var(--b3-theme-on-surface-light);
+    transition: transform 150ms;
+}
+
+.sy-agent-fold-arrow svg {
+    width: 14px;
+    height: 14px;
+}
+
+.sy-agent-fold--open .sy-agent-fold-arrow {
+    transform: rotate(90deg);
+}
+
+.sy-agent-fold-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sy-agent-fold-body {
+    padding: 0 8px 8px 30px;
+}
+
+/* 技能胶囊(参考原生智能体:选中技能后以胶囊形式挂载在输入区) */
+.sy-chat-skill-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    align-self: flex-start;
+    margin: 0 0 6px 2px;
+    padding: 2px 6px 2px 8px;
+    border-radius: 12px;
+    background: var(--b3-theme-primary-lightest);
+    color: var(--b3-theme-primary);
+    font-size: 12px;
+    line-height: 18px;
+    user-select: none;
+}
+
+.sy-chat-skill-chip-icon {
+    display: inline-flex;
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
+
+    svg {
+        width: 100%;
+        height: 100%;
+    }
+}
+
+.sy-chat-skill-chip-del {
+    display: inline-flex;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    cursor: pointer;
+    opacity: 0.7;
+    flex-shrink: 0;
+
+    svg {
+        width: 100%;
+        height: 100%;
+    }
+
+    &:hover {
+        opacity: 1;
+        background: var(--b3-theme-primary-light);
+    }
+}
+
+/* 输入框 / 技能弹层 */
+.sy-chat-input-area {
+    position: relative;
+}
+
+.sy-chat-skill-pop {
+    position: absolute;
+    bottom: 100%;
+    left: 8px;
+    right: 8px;
+    margin-bottom: 4px;
+    max-height: 260px;
+    overflow-y: auto;
+    background: var(--b3-menu-background);
+    border: 1px solid var(--b3-border-color);
+    border-radius: var(--b3-border-radius);
+    box-shadow: var(--b3-dialog-shadow);
+    padding: 4px;
+    z-index: 3;
+}
+
+.sy-chat-skill-item {
+    padding: 6px 8px;
+    border-radius: var(--b3-border-radius);
+    cursor: pointer;
+}
+
+.sy-chat-skill-item--active,
+.sy-chat-skill-item:hover {
+    background: var(--b3-list-hover);
+}
+
+.sy-chat-skill-name {
+    font-size: 13px;
+}
+
+.sy-chat-skill-cn {
+    margin-left: 8px;
+    color: var(--b3-theme-on-surface-light);
+}
+
+.sy-chat-skill-desc {
+    font-size: 12px;
+    color: var(--b3-theme-on-surface-light);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* 定位块高亮闪烁 */
+@keyframes syAgentFocusFlash {
+    0%, 60% {
+        background: var(--b3-theme-primary-lightest);
+        box-shadow: 0 0 0 2px var(--b3-theme-primary-light);
+    }
+    100% {
+        background: transparent;
+        box-shadow: none;
+    }
+}
+
+.sy-agent-focus-flash {
+    animation: syAgentFocusFlash 2s ease-out;
 }
 

@@ -2,23 +2,34 @@
   "name": "siyuan-agent",
   "author": "lizhen",
   "url": "https://github.com/Lizhen0628/siyuan-agent",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "minAppVersion": "3.8.3",
-  "backends": ["all"],
-  "frontends": ["desktop", "desktop-window", "browser-desktop"],
+  "backends": [
+    "all"
+  ],
+  "frontends": [
+    "desktop",
+    "desktop-window",
+    "browser-desktop"
+  ],
   "disabledInPublish": false,
   "displayName": {
-    "default": "SiYuan Agent (pi)",
-    "zh-CN": "SiYuan Agent (pi 智能体)"
+    "default": "SiYuan Agent",
+    "zh-CN": "SiYuan Agent"
   },
   "description": {
-    "default": "A second agent for SiYuan built on the pi agent loop (@mariozechner/pi-ai + pi-agent-core), with notebook tools (search / read / write / delete) and a chat panel.",
-    "zh-CN": "基于 pi 智能体循环(pi-ai + pi-agent-core)的第二套智能体：内置笔记工具(搜索/读取/写入/删除)与聊天面板，与内置智能体互不影响。"
+    "default": "An AI agent for SiYuan: chat panel with notebook tools (search/read/write), web search, skills, multi-model support and session history.",
+    "zh-CN": "思源笔记智能体：聊天面板 + 笔记工具(搜索/读取/写入)、联网搜索、技能体系、多模型与会话历史。"
   },
   "readme": {
     "default": "README.md"
   },
   "icon": "icon.png",
   "funding": {},
-  "keywords": ["agent", "pi", "ai", "智能体"]
+  "keywords": [
+    "agent",
+    "ai",
+    "智能体",
+    "assistant"
+  ]
 }

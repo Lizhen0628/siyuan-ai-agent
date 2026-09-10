@@ -10,6 +10,40 @@ export class SiYuanClient {
         return (window as any).siyuan?.config?.api?.token ?? "";
     }
 
+    /** 通用内核 REST 调用(供能力工具使用)。 */
+    async request<T = any>(endpoint: string, payload?: unknown): Promise<T> {
+        return this.post<T>(endpoint, payload);
+    }
+
+    /**
+     * 通过内核转发代理发起网络请求(内核侧执行 HTTP,天然绕过浏览器 CORS,
+     * 与集市/推送走的通道一致)。timeout 单位为秒。
+     */
+    async webRequest(opts: {
+        url: string;
+        method?: string;
+        timeout?: number;
+        headers?: Record<string, string>;
+        contentType?: string;
+        payload?: string;
+    }): Promise<{status: number; body: string; contentType: string}> {
+        const headers = Object.entries(opts.headers ?? {}).map(([k, v]) => ({[k]: v}));
+        const data = await this.post<any>("/api/network/forwardProxy", {
+            url: opts.url,
+            method: opts.method ?? "GET",
+            timeout: opts.timeout ?? 60,
+            headers,
+            contentType: opts.contentType ?? "text/html",
+            payload: opts.payload ?? "",
+            responseEncoding: "text",
+        });
+        return {
+            status: Number(data?.status ?? 0),
+            body: typeof data?.body === "string" ? data.body : "",
+            contentType: String(data?.contentType ?? ""),
+        };
+    }
+
     private async post<T = any>(endpoint: string, payload?: unknown): Promise<T> {
         const resp = await fetch(endpoint, {
             method: "POST",
