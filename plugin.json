@@ -1,7 +1,7 @@
 {
-  "name": "siyuan-agent",
+  "name": "siyuan-ai-agent",
   "author": "lizhen",
-  "url": "https://github.com/Lizhen0628/siyuan-agent",
+  "url": "https://github.com/Lizhen0628/siyuan-ai-agent",
   "version": "0.4.0",
   "minAppVersion": "3.8.3",
   "backends": [
@@ -25,11 +25,11 @@
     "default": "README.md"
   },
   "icon": "icon.png",
-  "funding": {},
   "keywords": [
     "agent",
     "ai",
     "智能体",
     "assistant"
-  ]
+  ],
+  "preview": "preview.png"
 }

@@ -1,13 +1,13 @@
 {
-  "name": "siyuan-agent",
+  "name": "siyuan-ai-agent",
   "version": "0.4.0",
   "description": "SiYuan Agent - AI assistant plugin for SiYuan Note",
   "main": "index.js",
   "scripts": {
     "dev": "webpack --mode development",
     "build": "webpack --mode production",
-    "deploy": "webpack --mode production && rsync -av --delete dist/ \"$SIYUAN_WORKSPACE/data/plugins/siyuan-agent/\"",
-    "deploy:local": "npm run build && rsync -av --delete dist/ \"$HOME/SiYuanKnowledgeBase/data/plugins/siyuan-agent/\""
+    "deploy": "webpack --mode production && rsync -av --delete dist/ \"$SIYUAN_WORKSPACE/data/plugins/siyuan-ai-agent/\"",
+    "deploy:local": "npm run build && rsync -av --delete dist/ \"$HOME/SiYuanKnowledgeBase/data/plugins/siyuan-ai-agent/\""
   },
   "keywords": [
     "siyuan",
@@ -19,12 +19,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/Lizhen0628/siyuan-agent.git"
+    "url": "git+ssh://git@github.com/Lizhen0628/siyuan-ai-agent.git"
   },
   "bugs": {
-    "url": "https://github.com/Lizhen0628/siyuan-agent/issues"
+    "url": "https://github.com/Lizhen0628/siyuan-ai-agent/issues"
   },
-  "homepage": "https://github.com/Lizhen0628/siyuan-agent#readme",
+  "homepage": "https://github.com/Lizhen0628/siyuan-ai-agent#readme",
   "packageManager": "pnpm@11.4.0",
   "engines": {
     "node": ">=20.0.0"
