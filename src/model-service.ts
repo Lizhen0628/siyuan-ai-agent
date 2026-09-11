@@ -5,6 +5,7 @@
 import {completeSimple} from "@mariozechner/pi-ai";
 import type {AgentPluginConfig} from "./agent-runner";
 import {buildModel, resolveActiveModel} from "./agent-runner";
+import {t} from "./i18n";
 
 export interface UpstreamModelInfo {
     id: string;
@@ -42,7 +43,7 @@ async function fetchJson(url: string, init: RequestInit, timeoutMs = 20000): Pro
         try {
             return JSON.parse(text);
         } catch {
-            throw new Error(`响应不是有效 JSON:${text.slice(0, 200)}`);
+            throw new Error(t("invalidJson", {text: text.slice(0, 200)}));
         }
     } finally {
         clearTimeout(timer);
@@ -52,12 +53,12 @@ async function fetchJson(url: string, init: RequestInit, timeoutMs = 20000): Pro
 function describeError(e: unknown): {message: string; details?: string} {
     const err = e as HttpError;
     if (err?.name === "AbortError") {
-        return {message: "请求超时(20 秒)", details: urlSafe(err?.message)};
+        return {message: t("timeout"), details: urlSafe(err?.message)};
     }
     if (err instanceof TypeError && /failed to fetch/i.test(err?.message ?? "")) {
         return {
-            message: "网络请求失败",
-            details: "无法连接到接口地址。请检查地址是否正确、网络是否可达;若在浏览器中访问思源,受 CORS 限制属正常现象,思源桌面端不受影响。",
+            message: t("networkFailed"),
+            details: t("networkFailedDetails"),
         };
     }
     if (typeof err?.status === "number") {
@@ -83,7 +84,7 @@ export async function listUpstreamModels(cfg: AgentPluginConfig): Promise<{model
     const base = cfg.baseURL.trim();
     const key = cfg.apiKey.trim();
     if (!base) {
-        throw new Error("请先填写接口地址");
+        throw new Error(t("baseUrlMissing"));
     }
 
     let models: UpstreamModelInfo[];
@@ -126,7 +127,7 @@ export async function listUpstreamModels(cfg: AgentPluginConfig): Promise<{model
             .filter((m: UpstreamModelInfo) => m.id);
         models.sort((a, b) => a.id.localeCompare(b.id));
     } else {
-        throw new Error(`协议 ${cfg.api} 暂不支持在线获取模型列表,请使用 pi 内置目录或手动填写模型 ID`);
+        throw new Error(t("protocolNoList", {api: cfg.api}));
     }
     return {models, latencyMs: Math.round(performance.now() - started)};
 }
@@ -135,12 +136,12 @@ export async function listUpstreamModels(cfg: AgentPluginConfig): Promise<{model
 export async function testConnection(cfg: AgentPluginConfig): Promise<TestOutcome> {
     try {
         const {models, latencyMs} = await listUpstreamModels(cfg);
-        const sample = models.slice(0, 3).map((m) => m.id).join("、");
+        const sample = models.slice(0, 3).map((m) => m.id).join(", ");
         return {
             ok: true,
             latencyMs,
-            message: `连接成功:发现 ${models.length} 个模型(${latencyMs}ms)`,
-            details: sample ? `示例:${sample}${models.length > 3 ? " …" : ""}` : undefined,
+            message: t("connSuccess", {count: models.length, latency: latencyMs}),
+            details: sample ? t("connSamples", {sample: `${sample}${models.length > 3 ? " …" : ""}`}) : undefined,
         };
     } catch (e) {
         return {ok: false, ...describeError(e)};
@@ -150,22 +151,22 @@ export async function testConnection(cfg: AgentPluginConfig): Promise<TestOutcom
 /** 发送测试消息:走 pi 完整管线(协议适配 + 流式),验证密钥、模型与协议是否真正可用。 */
 export async function testChat(cfg: AgentPluginConfig): Promise<TestOutcome> {
     if (!resolveActiveModel(cfg).id) {
-        return {ok: false, message: "请先添加并启用模型"};
+        return {ok: false, message: t("addModelFirst")};
     }
     if (!cfg.apiKey) {
-        return {ok: false, message: "请先填写 API Key"};
+        return {ok: false, message: t("apiKeyMissing")};
     }
     const started = performance.now();
     try {
         const reply = await completeSimple(buildModel(cfg), {
-            messages: [{role: "user", content: [{type: "text", text: "连通性测试,请只回复:pong"}], timestamp: Date.now()}],
+            messages: [{role: "user", content: [{type: "text", text: t("testPing")}], timestamp: Date.now()}],
         }, {
             apiKey: cfg.apiKey,
             maxTokens: Math.min(Math.max(cfg.maxTokens, 16), 64),
         });
         const latencyMs = Math.round(performance.now() - started);
         if (reply.stopReason === "error") {
-            return {ok: false, message: `模型返回错误:${reply.errorMessage ?? "未知错误"}`, latencyMs};
+            return {ok: false, message: t("modelError", {msg: reply.errorMessage ?? t("unknownError")}), latencyMs};
         }
         const text = reply.content
             .filter((c): c is {type: "text"; text: string} => c.type === "text")
@@ -175,8 +176,8 @@ export async function testChat(cfg: AgentPluginConfig): Promise<TestOutcome> {
         return {
             ok: true,
             latencyMs,
-            message: `对话成功(${latencyMs}ms),模型回复:「${text.slice(0, 60) || "(空)"}」`,
-            details: `tokens:输入 ${reply.usage.input} / 输出 ${reply.usage.output}`,
+            message: t("chatSuccess", {latency: latencyMs, reply: text.slice(0, 60) || t("emptyReply")}),
+            details: t("tokensDetail", {input: reply.usage.input, output: reply.usage.output}),
         };
     } catch (e) {
         return {ok: false, ...describeError(e)};

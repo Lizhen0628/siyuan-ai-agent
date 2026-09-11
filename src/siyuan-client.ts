@@ -5,6 +5,8 @@
  * Token 取自 window.siyuan.config.api.token（桌面端与浏览器端一致）。
  * 接口清单见内核源码 kernel/api/router.go。
  */
+import {t} from "./i18n";
+
 export class SiYuanClient {
     private get token(): string {
         return (window as any).siyuan?.config?.api?.token ?? "";
@@ -57,10 +59,10 @@ export class SiYuanClient {
         try {
             data = await resp.json();
         } catch {
-            throw new Error(`思源 API ${endpoint} 返回非 JSON(HTTP ${resp.status})`);
+            throw new Error(t("tool.apiNonJson", {endpoint, status: resp.status}));
         }
         if (!resp.ok || (data && typeof data.code === "number" && data.code !== 0)) {
-            throw new Error(`思源 API ${endpoint} 失败: HTTP ${resp.status} ${data?.msg ?? ""}`.trim());
+            throw new Error(t("tool.apiFailed", {endpoint, status: resp.status, msg: data?.msg ?? ""}).trim());
         }
         return data.data as T;
     }

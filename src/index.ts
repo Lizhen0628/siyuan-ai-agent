@@ -1,5 +1,5 @@
 /**
- * SiYuan Agent —— 思源笔记智能体插件(基于 pi 引擎:pi-ai + pi-agent-core)。
+ * SiYuan Ai Agent —— 思源笔记智能体插件(基于 pi 引擎:pi-ai + pi-agent-core)。
  *
  * pi 的 Agent 循环运行在插件侧(渲染进程),思源内核 REST API 被包装为工具;
  * 对话窗口挂载在右侧 Dock 侧边栏(参考思源内置智能体与 obsidian-copilot),
@@ -13,9 +13,10 @@ import type {AgentPluginConfig} from "./agent-runner";
 import type {AgentMessage} from "@mariozechner/pi-agent-core";
 import {ChatPanel} from "./chat-panel";
 import {SettingsDialog} from "./settings-dialog";
+import {initI18n, t} from "./i18n";
 
 /** Dock 注册 id,也是 rightDock.toggleModel 使用的类型。 */
-const DOCK_ID = "siyuan-agent-chat";
+const DOCK_ID = "siyuan-ai-agent-chat";
 /** 多会话存储(替代旧版单会话 STORAGE_SESSION)。 */
 const STORAGE_SESSIONS = "agent-sessions";
 /** 历史会话保留上限。 */
@@ -42,16 +43,16 @@ function deriveSessionTitle(messages: AgentMessage[]): string {
         }
         const blocks = (m as any).content;
         if (typeof blocks === "string") {
-            return blocks.slice(0, 40) || "新对话";
+            return blocks.slice(0, 40) || t("newChatTitle");
         }
         for (const b of blocks ?? []) {
             if (b.type === "text" && b.text?.trim()) {
                 return b.text.trim().slice(0, 40);
             }
         }
-        return "[图片]";
+        return t("imageMsg");
     }
-    return "新对话";
+    return t("newChatTitle");
 }
 
 /**
@@ -80,6 +81,8 @@ export default class SiyuanAgentPlugin extends Plugin {
     }
 
     override async onload(): Promise<void> {
+        // 界面文案跟随思源界面语言(window.siyuan.config.lang)
+        initI18n(this.i18n as unknown as Record<string, string>);
         // 预热用户技能缓存(~/.agents/skills),供系统提示词与设置页使用
         void refreshUserSkills();
         try {
@@ -89,7 +92,7 @@ export default class SiyuanAgentPlugin extends Plugin {
                 this.config = migrateConfig(stored);
             }
         } catch (e) {
-            console.error("[siyuan-agent] 读取配置失败", e);
+            console.error("[siyuan-ai-agent] 读取配置失败", e);
         }
         this.runner = new AgentRunner(
             () => this.config,
@@ -131,7 +134,7 @@ export default class SiyuanAgentPlugin extends Plugin {
                 this.runner.scheduleRestore(current.messages);
             }
         } catch (e) {
-            console.error("[siyuan-agent] 读取会话失败", e);
+            console.error("[siyuan-ai-agent] 读取会话失败", e);
         }
     }
 
@@ -150,7 +153,7 @@ export default class SiyuanAgentPlugin extends Plugin {
                 size: {width: 400, height: 0},
                 icon: "iconSiyuanAgent",
                 hotkey: "⌥⇧A",
-                title: "siyuan-agent",
+                title: "SiYuan Ai Agent",
                 show: false,
             },
             data: {},
@@ -253,11 +256,11 @@ export default class SiyuanAgentPlugin extends Plugin {
     openChat(): void {
         const dock = (window as any).siyuan?.layout?.rightDock;
         if (!dock) {
-            showMessage("未找到右侧 Dock,请尝试重置布局", 4000, "error");
+            showMessage(t("dockNotFound"), 4000, "error");
             return;
         }
         if (!this.config.apiKey || !resolveActiveModel(this.config).id) {
-            showMessage(this.i18n["needConfig"] || "请先在插件设置中配置接口地址、API Key 和模型", 5000, "error");
+            showMessage(t("needConfig"), 5000, "error");
             this.openSetting();
             return;
         }
@@ -295,7 +298,7 @@ export default class SiyuanAgentPlugin extends Plugin {
             }
             await this.saveData(STORAGE_SESSIONS, {currentId: this.currentSessionId, sessions: this.sessions});
         } catch (e) {
-            console.error("[siyuan-agent] 保存会话失败", e);
+            console.error("[siyuan-ai-agent] 保存会话失败", e);
         }
     }
 
@@ -309,8 +312,8 @@ export default class SiyuanAgentPlugin extends Plugin {
         })();
         return new Promise<boolean>((resolve) => {
             confirm(
-                "SiYuan Agent",
-                `智能体请求执行写操作「${label}」(${toolName}),是否允许?\n\n<code class="fn__code">${detail
+                "SiYuan Ai Agent",
+                `${t("confirmWriteBody", {label, tool: toolName})}\n\n<code class="fn__code">${detail
                     .replace(/&/g, "&amp;").replace(/</g, "&lt;").slice(0, 1500)}</code>`,
                 () => resolve(true),
                 () => resolve(false),
@@ -327,8 +330,8 @@ export default class SiyuanAgentPlugin extends Plugin {
         try {
             await this.runner.send(textValue, images);
         } catch (e: any) {
-            console.error("[siyuan-agent] 运行失败", e);
-            showMessage(`智能体运行失败: ${e?.message ?? e}`, 6000, "error");
+            console.error("[siyuan-ai-agent] 运行失败", e);
+            showMessage(t("runFailed", {msg: e?.message ?? e}), 6000, "error");
         } finally {
             this.sending = false;
             this.panel?.requestRender();
@@ -352,14 +355,14 @@ export default class SiyuanAgentPlugin extends Plugin {
         this.sending = true;
         try {
             if (!(await this.runner.truncateFrom(index))) {
-                showMessage("无法编辑该消息", 3000, "error");
+                showMessage(t("cannotEditMessage"), 3000, "error");
                 return;
             }
             this.panel?.requestRender();
             await this.runner.send(textValue, images);
         } catch (e: any) {
-            console.error("[siyuan-agent] 运行失败", e);
-            showMessage(`智能体运行失败: ${e?.message ?? e}`, 6000, "error");
+            console.error("[siyuan-ai-agent] 运行失败", e);
+            showMessage(t("runFailed", {msg: e?.message ?? e}), 6000, "error");
         } finally {
             this.sending = false;
             this.panel?.requestRender();
@@ -370,9 +373,9 @@ export default class SiyuanAgentPlugin extends Plugin {
     private confirmEditTruncation(): Promise<boolean> {
         return new Promise<boolean>((resolve) => {
             confirm(
-                window.siyuan?.languages?.confirm ?? "确认",
+                window.siyuan?.languages?.confirm ?? "Confirm",
                 window.siyuan?.languages?.agentEditHistoryWarning
-                    ?? "编辑此消息将删除其后的对话记录,已执行的工具操作(如对笔记的修改)不会回滚。是否继续?",
+                    ?? t("editHistoryWarning"),
                 () => resolve(true),
                 () => resolve(false),
             );

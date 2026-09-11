@@ -1,9 +1,14 @@
 /**
- * 技能管理:内置技能(随插件发布) + 用户技能(~/.agents/skills/<id>/SKILL.md)。
+ * 技能管理:内置技能(随插件发布) + 外部技能(SKILL.md 目录扫描)。
+ * 外部技能扫描两个根目录:
+ *   1. 全局用户目录 ~/.agents/skills(用户手工维护);
+ *   2. 本插件数据存储目录 <工作区>/data/storage/petal/siyuan-ai-agent/skills
+ *      (约定给别的插件安装技能用;同名 id 时本目录优先于全局目录)。
  * 启用的技能正文会注入系统提示词,引导智能体按技能流程工作。
  * 参考思源原生 设置-人工智能-技能:外部技能默认关闭、逐个启用。
  */
 import type {AgentPluginConfig} from "./agent-runner";
+import {isZh, t} from "./i18n";
 
 export interface SkillInfo {
     /** 目录名/内置 id */
@@ -19,51 +24,89 @@ export interface SkillInfo {
     defaultEnabled?: boolean;
 }
 
-/** 插件内置技能。 */
+/** 插件内置技能(名称/描述/正文跟随界面语言)。 */
 export const BUILTIN_SKILLS: SkillInfo[] = [
     {
         id: "siyuan-daily-note",
-        name: "日记整理",
-        description: "把随手记录整理成结构化的日记:归类、提炼待办与亮点",
+        name: t("skillDailyName"),
+        description: t("skillDailyDesc"),
         source: "builtin",
-        body: `当用户要求整理日记/随手记时:
-1. 先用 search_notes 或 read_note 读取相关内容;
-2. 按「今日要点 / 待办 / 想法与灵感 / 摘录」归类;
-3. 创建或更新当日日记文档(路径形如 /日记/2026/1月2日),保持原有内容不丢失;
-4. 完成后简要汇报改动。`,
+        body: t("skillDailyBody"),
     },
     {
         id: "siyuan-meeting-notes",
-        name: "会议纪要",
-        description: "把会议记录整理为「议题 / 结论 / 行动项(负责人+期限)」结构",
+        name: t("skillMeetingName"),
+        description: t("skillMeetingDesc"),
         source: "builtin",
-        body: `当用户要求整理会议纪要时:
-1. 读取用户提供的原始记录;
-2. 提炼为三段结构:议题与讨论要点、达成结论、行动项(标注负责人与期限,未知的留空);
-3. 写入新文档或追加到用户指定文档;
-4. 行动项使用思源待办列表语法 * [ ]。`,
+        body: t("skillMeetingBody"),
     },
     {
         id: "siyuan-web-research",
-        name: "联网调研",
-        description: "查找笔记库之外的最新信息/资料的标准流程:搜索→筛选→精读→交叉验证→整理入库",
+        name: t("skillResearchName"),
+        description: t("skillResearchDesc"),
         source: "builtin",
-        body: `当用户要求调研、查找、总结互联网上的信息(新闻、文档、评测、资料等)时:
-1. 明确问题:先想清楚要回答什么;问题模糊时先与用户确认范围与用途。
-2. 设计查询:构造 2-3 个互补的关键词(中英文都可尝试);太宽泛时加限定词(年份、官方、教程、评测等)。
-3. 搜索筛选:用 web_search 获取结果,优先官方文档、权威媒体、原始出处;避开内容农场与营销稿。
-4. 精读验证:用 web_fetch 抓取 2-3 个高质量来源的正文;关键结论至少两个来源交叉验证。
-5. 整理输出:用 Markdown 结构化输出,关键事实标注来源链接;无法证实的信息明确说明,不要编造。
-6. 询问入库:主动询问用户是否将调研结果整理进笔记(文档或当天日记),得到确认后再写入。
-注意:
-- 搜索结果不理想时换关键词重试,不要凭空编造。
-- 网页抓取失败(反爬/需登录)时换其他来源,不要反复重试同一链接。
-- 区分事实与观点;时效性信息注明查询日期。`,
+        body: t("skillResearchBody"),
+    },
+    {
+        id: "siyuan-sql-query",
+        name: t("skillSqlName"),
+        description: t("skillSqlDesc"),
+        source: "builtin",
+        defaultEnabled: false,
+        body: t("skillSqlBody"),
+    },
+    {
+        id: "siyuan-batch-backup",
+        name: t("skillBackupName"),
+        description: t("skillBackupDesc"),
+        source: "builtin",
+        defaultEnabled: false,
+        body: t("skillBackupBody"),
+    },
+    {
+        id: "siyuan-tag-governance",
+        name: t("skillTagsName"),
+        description: t("skillTagsDesc"),
+        source: "builtin",
+        defaultEnabled: false,
+        body: t("skillTagsBody"),
+    },
+    {
+        id: "siyuan-doc-organize",
+        name: t("skillOrganizeName"),
+        description: t("skillOrganizeDesc"),
+        source: "builtin",
+        defaultEnabled: false,
+        body: t("skillOrganizeBody"),
     },
 ];
 
 /** 用户技能缓存(listUserSkills 异步加载,runner 同步读取)。 */
 let userSkillsCache: SkillInfo[] = [];
+
+/** 全局用户技能目录展示路径。 */
+const GLOBAL_SKILLS_DISPLAY = "~/.agents/skills";
+/** 插件存储技能目录(相对工作区),约定给其他插件安装技能用。 */
+const STORAGE_SKILLS_REL = "data/storage/petal/siyuan-ai-agent/skills";
+/** 插件存储技能目录展示路径(相对工作区,跨平台展示用 / 分隔)。 */
+const STORAGE_SKILLS_DISPLAY = `${isZh() ? "<工作区>" : "<workspace>"}/${STORAGE_SKILLS_REL}`;
+
+/**
+ * 插件存储技能目录的绝对路径(仅桌面端可解析工作区路径;否则返回 null)。
+ * 别的插件安装技能到此目录:<工作区>/data/storage/petal/siyuan-ai-agent/skills/<id>/SKILL.md
+ */
+export function getStorageSkillDir(): string | null {
+    const workspaceDir = (window as any).siyuan?.config?.system?.workspaceDir;
+    if (!workspaceDir) {
+        return null;
+    }
+    const req = (window as any).require;
+    if (!req) {
+        return null;
+    }
+    const path = req("path") as typeof import("path");
+    return path.join(workspaceDir, ...STORAGE_SKILLS_REL.split("/"));
+}
 
 /** 解析 SKILL.md 的 YAML frontmatter(仅取 name/description,够列表展示用)。 */
 function parseFrontmatter(raw: string): {name?: string; description?: string; body: string} {
@@ -81,7 +124,42 @@ function parseFrontmatter(raw: string): {name?: string; description?: string; bo
     return {...meta, body: m[2]};
 }
 
-/** 扫描 ~/.agents/skills 下的用户技能(仅桌面端可用 node fs;浏览器/移动端返回空)。 */
+/** 扫描单个技能根目录,返回其中的技能列表。 */
+function scanSkillsDir(fs: typeof import("fs"), path: typeof import("path"), root: string, display: string): SkillInfo[] {
+    if (!fs.existsSync(root)) {
+        return [];
+    }
+    const out: SkillInfo[] = [];
+    for (const dirent of fs.readdirSync(root, {withFileTypes: true})) {
+        if (!dirent.isDirectory()) {
+            continue;
+        }
+        const file = path.join(root, dirent.name, "SKILL.md");
+        if (!fs.existsSync(file)) {
+            continue;
+        }
+        try {
+            const raw = fs.readFileSync(file, "utf8");
+            const {name, description, body} = parseFrontmatter(raw);
+            out.push({
+                id: dirent.name,
+                name: name || dirent.name,
+                description: description ?? "",
+                body,
+                source: "user",
+                path: `${display}/${dirent.name}`,
+            });
+        } catch {
+            // 单个技能读取失败不影响整体
+        }
+    }
+    return out;
+}
+
+/**
+ * 扫描外部技能:插件存储目录(优先) + 全局 ~/.agents/skills。
+ * 同名 id 去重(存储目录优先)。仅桌面端可用 node fs;浏览器/移动端返回空。
+ */
 export async function listUserSkills(): Promise<SkillInfo[]> {
     try {
         const req = (window as any).require;
@@ -91,33 +169,28 @@ export async function listUserSkills(): Promise<SkillInfo[]> {
         const fs = req("fs") as typeof import("fs");
         const path = req("path") as typeof import("path");
         const os = req("os") as typeof import("os");
-        const root = path.join(os.homedir(), ".agents", "skills");
-        if (!fs.existsSync(root)) {
-            return [];
-        }
         const out: SkillInfo[] = [];
-        for (const dirent of fs.readdirSync(root, {withFileTypes: true})) {
-            if (!dirent.isDirectory()) {
-                continue;
-            }
-            const file = path.join(root, dirent.name, "SKILL.md");
-            if (!fs.existsSync(file)) {
-                continue;
-            }
+        const seen = new Set<string>();
+        // 插件存储目录:别的插件安装技能用;不存在则自动创建,方便第三方直接写入
+        const storageDir = getStorageSkillDir();
+        if (storageDir) {
             try {
-                const raw = fs.readFileSync(file, "utf8");
-                const {name, description, body} = parseFrontmatter(raw);
-                out.push({
-                    id: dirent.name,
-                    name: name || dirent.name,
-                    description: description ?? "",
-                    body,
-                    source: "user",
-                    path: `~/.agents/skills/${dirent.name}`,
-                });
+                fs.mkdirSync(storageDir, {recursive: true});
             } catch {
-                // 单个技能读取失败不影响整体
+                // 创建失败仍可继续扫描
             }
+            for (const s of scanSkillsDir(fs, path, storageDir, STORAGE_SKILLS_DISPLAY)) {
+                seen.add(s.id);
+                out.push(s);
+            }
+        }
+        // 全局用户目录
+        const globalDir = path.join(os.homedir(), ".agents", "skills");
+        for (const s of scanSkillsDir(fs, path, globalDir, GLOBAL_SKILLS_DISPLAY)) {
+            if (seen.has(s.id)) {
+                continue;
+            }
+            out.push(s);
         }
         return out;
     } catch {
@@ -125,7 +198,7 @@ export async function listUserSkills(): Promise<SkillInfo[]> {
     }
 }
 
-/** 刷新用户技能缓存(插件加载与设置页「刷新」时调用)。 */
+/** 刷新用户技能缓存(插件加载与设置面板打开时调用,重新扫描两个技能目录)。 */
 export async function refreshUserSkills(): Promise<SkillInfo[]> {
     userSkillsCache = await listUserSkills();
     return userSkillsCache;
@@ -155,7 +228,7 @@ export function skillsPromptSection(cfg: AgentPluginConfig): string {
         return "";
     }
     let budget = 12000;
-    const parts: string[] = ["", "# 已启用技能", "当用户任务与某项技能匹配时,遵循该技能的流程指引。"];
+    const parts: string[] = ["", t("skillsSectionTitle"), t("skillsSectionIntro")];
     for (const s of skills) {
         const body = s.body.trim().slice(0, Math.max(0, budget));
         if (!body) {

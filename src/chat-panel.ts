@@ -11,6 +11,7 @@ import type {AgentEvent, AgentMessage} from "@mariozechner/pi-agent-core";
 import type {ImageContent} from "@mariozechner/pi-ai";
 import {marked} from "marked";
 import type {AgentRunner, AgentThinkingLevel} from "./agent-runner";
+import {t} from "./i18n";
 
 marked.setOptions({gfm: true, breaks: true});
 
@@ -21,11 +22,10 @@ const icon = (id: string, cls?: string): string =>
 const TOOL_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>`;
 const CHECK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m9 11 3 3L22 4"/></svg>`;
 
-const QUICK_PROMPTS = [
-    "列出我的所有笔记本",
-    "搜索笔记:LLM",
-    "我的工具笔记本里有什么?",
-];
+/** 空会话欢迎页的示例问题(跟随界面语言)。 */
+function quickPrompts(): string[] {
+    return [t("quickPrompt1"), t("quickPrompt2"), t("quickPrompt3")];
+}
 
 /** 紧凑数字(K/M 单位):1234 → 1.2K,128000 → 128K,1200000 → 1.2M。 */
 function compactNum(n: number): string {
@@ -391,45 +391,45 @@ export class ChatPanel {
     constructor(container: HTMLElement, runner: AgentRunner, private readonly callbacks: ChatPanelCallbacks) {
         this.runner = runner;
         container.innerHTML = `
-<div class="sy-agent-root sy-chat">
+<div class="sy-ai-agent-root sy-chat">
     <div class="block__icons fn__hidescrollbar sy-chat-header">
-        <div class="block__logo fn__flex-1 sy-chat-title">SiYuan Agent</div>
-        <span class="block__icon block__icon--show ariaLabel sy-action-history" data-position="north" aria-label="对话历史">${icon("iconHistory")}</span>
-        <span class="block__icon block__icon--show ariaLabel sy-action-new" data-position="north" aria-label="新会话">${icon("iconAdd")}</span>
+        <div class="block__logo fn__flex-1 sy-chat-title">SiYuan Ai Agent</div>
+        <span class="block__icon block__icon--show ariaLabel sy-action-history" data-position="north" aria-label="${t("history")}">${icon("iconHistory")}</span>
+        <span class="block__icon block__icon--show ariaLabel sy-action-new" data-position="north" aria-label="${t("newSession")}">${icon("iconAdd")}</span>
         <span class="fn__space"></span>
-        <span class="block__icon block__icon--show ariaLabel sy-action-settings" data-position="north" aria-label="设置">${icon("iconSettings")}</span>
+        <span class="block__icon block__icon--show ariaLabel sy-action-settings" data-position="north" aria-label="${t("settings")}">${icon("iconSettings")}</span>
     </div>
-    <div class="sy-agent-messages-wrap">
-        <div class="sy-agent-messages"></div>
-        <span class="sy-chat-scroll-bottom ariaLabel fn__none" data-position="west" aria-label="回到底部">${icon("iconArrowDown")}</span>
+    <div class="sy-ai-agent-messages-wrap">
+        <div class="sy-ai-agent-messages"></div>
+        <span class="sy-chat-scroll-bottom ariaLabel fn__none" data-position="west" aria-label="${t("scrollToBottom")}">${icon("iconArrowDown")}</span>
     </div>
     <div class="sy-chat-input-area">
         <div class="sy-chat-attach-strip fn__none"></div>
         <div class="sy-chat-skill-chip fn__none"></div>
-        <div class="sy-agent-input" contenteditable="true" data-placeholder="输入消息，/技能…"></div>
+        <div class="sy-ai-agent-input" contenteditable="true" data-placeholder="${t("inputPlaceholder")}"></div>
         <div class="sy-chat-skill-pop fn__none"></div>
         <div class="sy-chat-buttons">
-            <button class="b3-button b3-button--icon b3-button--text sy-chat-attach ariaLabel" aria-label="插入图片" data-position="n" type="button">${icon("iconImage")}</button>
+            <button class="b3-button b3-button--icon b3-button--text sy-chat-attach ariaLabel" aria-label="${t("insertImage")}" data-position="n" type="button">${icon("iconImage")}</button>
             <button class="b3-select b3-select--noborder sy-chat-combo sy-chat-thinking ariaLabel" data-position="n" type="button">${icon("iconBrain", "sy-chat-model-icon")}<span class="sy-chat-thinking-label"></span></button>
             <button class="b3-select b3-select--noborder sy-chat-combo sy-chat-model ariaLabel" data-position="n" type="button">${icon("iconAtom", "sy-chat-model-icon")}<span class="sy-chat-model-label"></span></button>
             <span class="fn__flex-1"></span>
             <span class="sy-chat-stats fn__none"></span>
-            <span class="sy-chat-tokens fn__none ariaLabel" aria-label="上下文用量" data-position="north"><svg viewBox="0 0 24 24"><circle class="sy-chat-tokens-track" cx="12" cy="12" r="9" stroke-width="3"></circle><circle class="sy-chat-tokens-arc" cx="12" cy="12" r="9" stroke-width="3" stroke-dasharray="0 56.55"></circle></svg></span>
-            <button class="b3-button b3-button--icon b3-button--text sy-chat-send ariaLabel" aria-label="发送 (Enter)" type="button">${icon("iconSend")}</button>
-            <button class="b3-button b3-button--icon b3-button--cancel sy-chat-stop fn__none ariaLabel" aria-label="停止" type="button">${icon("iconSquareStop")}</button>
+            <span class="sy-chat-tokens fn__none ariaLabel" aria-label="${t("contextUsage")}" data-position="north"><svg viewBox="0 0 24 24"><circle class="sy-chat-tokens-track" cx="12" cy="12" r="9" stroke-width="3"></circle><circle class="sy-chat-tokens-arc" cx="12" cy="12" r="9" stroke-width="3" stroke-dasharray="0 56.55"></circle></svg></span>
+            <button class="b3-button b3-button--icon b3-button--text sy-chat-send ariaLabel" aria-label="${t("sendEnter")}" type="button">${icon("iconSend")}</button>
+            <button class="b3-button b3-button--icon b3-button--cancel sy-chat-stop fn__none ariaLabel" aria-label="${t("stop")}" type="button">${icon("iconSquareStop")}</button>
         </div>
     </div>
     <input type="file" accept="image/*" multiple class="sy-chat-file fn__none" />
     <div class="sy-chat-history fn__none">
         <div class="fn__flex sy-chat-history-head">
-            <span class="fn__flex-1 sy-chat-history-title">对话历史</span>
-            <span class="block__icon block__icon--show ariaLabel sy-history-close" data-position="west" aria-label="关闭">${icon("iconClose")}</span>
+            <span class="fn__flex-1 sy-chat-history-title">${t("history")}</span>
+            <span class="block__icon block__icon--show ariaLabel sy-history-close" data-position="west" aria-label="${t("close")}">${icon("iconClose")}</span>
         </div>
         <div class="sy-chat-history-list"></div>
     </div>
 </div>`;
         this.rootEl = container.querySelector(".sy-chat")!;
-        this.messagesEl = container.querySelector(".sy-agent-messages")!;
+        this.messagesEl = container.querySelector(".sy-ai-agent-messages")!;
         this.modelBtnEl = container.querySelector(".sy-chat-model")!;
         this.modelLabelEl = container.querySelector(".sy-chat-model-label")!;
         this.tokensEl = container.querySelector(".sy-chat-tokens")!;
@@ -453,7 +453,7 @@ export class ChatPanel {
                 this.showTokenPopup();
             }
         });
-        this.inputEl = container.querySelector(".sy-agent-input")!;
+        this.inputEl = container.querySelector(".sy-ai-agent-input")!;
         this.sendBtnEl = container.querySelector(".sy-chat-send")!;
         this.stopBtnEl = container.querySelector(".sy-chat-stop")!;
         this.scrollBottomEl = container.querySelector(".sy-chat-scroll-bottom")!;
@@ -487,7 +487,7 @@ export class ChatPanel {
         this.thinkingBtnEl.addEventListener("click", () => this.toggleThinkingMenu());
         this.attachBtnEl.addEventListener("click", () => {
             if (!this.callbacks.getState().supportsImage) {
-                showMessage("当前模型不支持图片输入,请切换支持图片的模型", 3000, "error");
+                showMessage(t("imageNotSupportedSwitch"), 3000, "error");
                 return;
             }
             this.fileInputEl.click();
@@ -522,14 +522,14 @@ export class ChatPanel {
                 return;
             }
             // 点击用户消息正文(非交互元素且未在选中文本)进入编辑(对齐原生 agent-chat__body 点击行为)
-            const bodyEl = target.closest?.(".sy-agent-msg.user .sy-msg-body") as HTMLElement | null;
+            const bodyEl = target.closest?.(".sy-ai-agent-msg.user .sy-msg-body") as HTMLElement | null;
             if (!bodyEl || this.editingIndex !== null || this.runner.isStreaming) {
                 return;
             }
             if (target.closest("[data-type], a[href], img, pre, button, input, textarea, select")) {
                 return;
             }
-            const wrap = bodyEl.closest(".sy-agent-msg.user") as HTMLElement;
+            const wrap = bodyEl.closest(".sy-ai-agent-msg.user") as HTMLElement;
             const sel = window.getSelection();
             if (sel && !sel.isCollapsed && wrap.contains(sel.anchorNode)) {
                 return; // 正在选中消息文本,不进入编辑
@@ -663,7 +663,7 @@ export class ChatPanel {
             name.textContent = skill.name;
             const del = document.createElement("span");
             del.className = "sy-chat-skill-chip-del ariaLabel";
-            del.setAttribute("aria-label", "移除技能");
+            del.setAttribute("aria-label", t("removeSkill"));
             del.setAttribute("data-position", "north");
             del.innerHTML = icon("iconClose");
             del.addEventListener("click", () => this.setActiveSkill(null));
@@ -686,7 +686,7 @@ export class ChatPanel {
         this.historyListEl.textContent = "";
         if (sessions.length === 0) {
             this.historyListEl.insertAdjacentHTML("beforeend",
-                `<div class="b3-label__text sy-chat-history-empty">暂无历史对话</div>`);
+                `<div class="b3-label__text sy-chat-history-empty">${t("noHistory")}</div>`);
             return;
         }
         for (const s of sessions) {
@@ -700,7 +700,7 @@ export class ChatPanel {
                 `<div class="sy-chat-history-item-time">${timeText}</div></div>` +
                 (s.id === currentId
                     ? ""
-                    : `<span class="block__icon block__icon--show ariaLabel sy-history-del" data-position="west" aria-label="删除">${icon("iconTrashcan")}</span>`);
+                    : `<span class="block__icon block__icon--show ariaLabel sy-history-del" data-position="west" aria-label="${t("delete")}">${icon("iconTrashcan")}</span>`);
             item.addEventListener("click", () => {
                 if (s.id !== currentId) {
                     this.cancelEdit();
@@ -827,11 +827,11 @@ export class ChatPanel {
             if (files.length > 0) {
                 e.preventDefault();
                 if (el !== this.inputEl) {
-                    showMessage("编辑消息时暂不支持插入图片", 3000, "error");
+                    showMessage(t("editNoImage"), 3000, "error");
                     return;
                 }
                 if (!this.callbacks.getState().supportsImage) {
-                    showMessage("当前模型不支持图片输入", 3000, "error");
+                    showMessage(t("imageNotSupported"), 3000, "error");
                     return;
                 }
                 void this.addImageFiles(files);
@@ -892,13 +892,13 @@ export class ChatPanel {
                 continue;
             }
             if (file.size > 10 * 1024 * 1024) {
-                showMessage(`图片 ${file.name} 超过 10MB,已跳过`, 3000, "error");
+                showMessage(t("imageTooLarge", {name: file.name}), 3000, "error");
                 continue;
             }
             try {
                 this.attachments.push(await fileToPendingImage(file));
             } catch {
-                showMessage(`读取图片 ${file.name} 失败`, 3000, "error");
+                showMessage(t("imageReadFailed", {name: file.name}), 3000, "error");
             }
         }
         this.renderAttachStrip();
@@ -969,7 +969,7 @@ export class ChatPanel {
      */
     private editMessageNode(msg: AgentMessage): HTMLElement {
         const wrap = document.createElement("div");
-        wrap.className = "sy-agent-msg user sy-editing";
+        wrap.className = "sy-ai-agent-msg user sy-editing";
         // 原消息的图片附件随编辑保留,重发时一并提交
         const images: ImageContent[] = (Array.isArray(msg.content) ? msg.content : [])
             .filter((b) => b.type === "image")
@@ -990,7 +990,7 @@ export class ChatPanel {
                 thumb.alt = "image";
                 const del = document.createElement("span");
                 del.className = "sy-chat-attach-del ariaLabel";
-                del.setAttribute("aria-label", "移除图片");
+                del.setAttribute("aria-label", t("removeImage"));
                 del.setAttribute("data-position", "north");
                 del.innerHTML = icon("iconClose");
                 del.addEventListener("click", () => {
@@ -1003,7 +1003,7 @@ export class ChatPanel {
         };
         renderStrip();
         const editor = document.createElement("div");
-        editor.className = "sy-agent-input sy-msg-edit-input";
+        editor.className = "sy-ai-agent-input sy-msg-edit-input";
         editor.contentEditable = "true";
         // 与粘贴处理一致:((id '锚文本')) 语法还原为原生块引用 span
         editor.innerHTML = blockRefsToHtml(plainText(msg));
@@ -1011,10 +1011,10 @@ export class ChatPanel {
         actions.className = "sy-msg-edit-actions";
         const cancel = document.createElement("button");
         cancel.className = "b3-button b3-button--small b3-button--cancel";
-        cancel.textContent = window.siyuan?.languages?.cancel ?? "取消";
+        cancel.textContent = window.siyuan?.languages?.cancel ?? t("cancel");
         const submit = document.createElement("button");
         submit.className = "b3-button b3-button--small b3-button--text";
-        submit.textContent = "发送";
+        submit.textContent = t("send");
         actions.append(cancel, submit);
         // 图片缩略图条与编辑器一起包在气泡容器内(与普通消息气泡的图片布局一致)
         const bubble = document.createElement("div");
@@ -1114,17 +1114,17 @@ export class ChatPanel {
         const currentIdx = Math.max(0, levels.indexOf(thinking.level));
 
         const pop = document.createElement("div");
-        pop.className = "b3-menu sy-agent-thinking-menu";
+        pop.className = "b3-menu sy-ai-agent-thinking-menu";
         pop.style.setProperty("--sy-think-color", this.thinkingHeatColor(currentIdx, levels.length));
 
         // 当前档位名(拖动滑块时实时预览)
         const valueEl = document.createElement("div");
-        valueEl.className = "sy-agent-thinking-menu-value";
+        valueEl.className = "sy-ai-agent-thinking-menu-value";
         valueEl.textContent = cap(levels[currentIdx]);
 
         // 滑块:左端 = 最低档,右端 = 最高档;拖动结束才提交
         const slider = document.createElement("input");
-        slider.className = "b3-slider sy-agent-thinking-menu-slider";
+        slider.className = "b3-slider sy-ai-agent-thinking-menu-slider";
         slider.type = "range";
         slider.min = "0";
         slider.max = String(levels.length - 1);
@@ -1144,11 +1144,11 @@ export class ChatPanel {
 
         // 两端档位名,帮助定位
         const ends = document.createElement("div");
-        ends.className = "sy-agent-thinking-menu-ends";
+        ends.className = "sy-ai-agent-thinking-menu-ends";
         ends.innerHTML = `<span>${cap(levels[0])}</span><span>${cap(levels[levels.length - 1])}</span>`;
 
         const body = document.createElement("div");
-        body.className = "sy-agent-thinking-menu-body";
+        body.className = "sy-ai-agent-thinking-menu-body";
         body.append(valueEl, slider, ends);
         pop.appendChild(body);
         document.body.append(pop);
@@ -1203,23 +1203,23 @@ export class ChatPanel {
         }
         const {models} = this.callbacks.getState();
         const pop = document.createElement("div");
-        pop.className = "sy-agent-combo-pop sy-agent-model-menu";
+        pop.className = "sy-ai-agent-combo-pop sy-ai-agent-model-menu";
         for (const m of models) {
             const item = document.createElement("div");
-            item.className = "sy-agent-combo-item";
+            item.className = "sy-ai-agent-combo-item";
             const label = document.createElement("span");
-            label.className = "sy-agent-combo-id";
+            label.className = "sy-ai-agent-combo-id";
             label.textContent = m.label;
             item.appendChild(label);
             if (m.label !== m.id) {
                 const note = document.createElement("span");
-                note.className = "sy-agent-combo-note";
+                note.className = "sy-ai-agent-combo-note";
                 note.textContent = m.id;
                 item.appendChild(note);
             }
             if (m.active) {
                 const check = document.createElement("span");
-                check.className = "sy-agent-combo-check";
+                check.className = "sy-ai-agent-combo-check";
                 check.innerHTML = icon("iconSelect");
                 item.appendChild(check);
             }
@@ -1407,12 +1407,12 @@ export class ChatPanel {
             return btn;
         };
         if (onEdit) {
-            row.appendChild(mkBtn(window.siyuan?.languages?.edit ?? "编辑", "iconEdit", onEdit));
+            row.appendChild(mkBtn(window.siyuan?.languages?.edit ?? t("edit"), "iconEdit", onEdit));
         }
-        row.appendChild(mkBtn("复制", "iconCopy", () => {
+        row.appendChild(mkBtn(t("copy"), "iconCopy", () => {
             navigator.clipboard?.writeText(text).then(
-                () => showMessage("已复制", 1500),
-                () => showMessage("复制失败", 1500, "error"),
+                () => showMessage(t("copied"), 1500),
+                () => showMessage(t("copyFailed"), 1500, "error"),
             );
         }));
         return row;
@@ -1421,7 +1421,7 @@ export class ChatPanel {
     private messageNode(msg: AgentMessage, revealLen?: number, msgIndex?: number): HTMLElement {
         const wrap = document.createElement("div");
         if (msg.role === "user") {
-            wrap.className = "sy-agent-msg user";
+            wrap.className = "sy-ai-agent-msg user";
             const body = document.createElement("div");
             body.className = "sy-msg-body b3-typography";
             // 图片附件渲染在文本之前
@@ -1442,7 +1442,7 @@ export class ChatPanel {
             return wrap;
         }
         if (msg.role === "assistant") {
-            wrap.className = "sy-agent-msg assistant";
+            wrap.className = "sy-ai-agent-msg assistant";
             const body = document.createElement("div");
             body.className = "sy-msg-body b3-typography";
             let html = "";
@@ -1463,21 +1463,21 @@ export class ChatPanel {
                     // 打字期间展开并显示「思考中」(对齐原生 agentThinking 文案),结束后折叠
                     const typing = revealLen !== undefined;
                     html +=
-                        `<details class="sy-agent-thinking"${typing ? " open" : ""}><summary>${typing ? "思考中" : "思考过程"}</summary>` +
-                        `<div class="sy-agent-thinking-body">${escapeHtml(shown)}</div></details>`;
+                        `<details class="sy-ai-agent-thinking"${typing ? " open" : ""}><summary>${typing ? t("thinking") : t("thoughtProcess")}</summary>` +
+                        `<div class="sy-ai-agent-thinking-body">${escapeHtml(shown)}</div></details>`;
                 } else if (block.type === "toolCall") {
                     const call = block as any;
                     const args = summarizeArgs(call.arguments);
                     html +=
-                        `<div class="sy-agent-tool-card"><div class="sy-agent-tool-head">${TOOL_ICON}` +
-                        `<span class="sy-agent-tool-title">${escapeHtml(call.name)}</span></div>` +
-                        (args ? `<pre class="sy-agent-tool-detail">${args}</pre>` : "") +
+                        `<div class="sy-ai-agent-tool-card"><div class="sy-ai-agent-tool-head">${TOOL_ICON}` +
+                        `<span class="sy-ai-agent-tool-title">${escapeHtml(call.name)}</span></div>` +
+                        (args ? `<pre class="sy-ai-agent-tool-detail">${args}</pre>` : "") +
                         `</div>`;
                 }
             }
             // 打字机期间始终显示闪烁光标(对齐原生 streaming-after 的闪烁块)
             if (revealLen !== undefined) {
-                html += `<span class="sy-agent-caret"></span>`;
+                html += `<span class="sy-ai-agent-caret"></span>`;
             }
             body.innerHTML = html;
             this.enhanceRefs(body);
@@ -1485,35 +1485,35 @@ export class ChatPanel {
             return wrap;
         }
         // toolResult
-        wrap.className = "sy-agent-msg tool";
+        wrap.className = "sy-ai-agent-msg tool";
         const result = msg as any;
         const detail = document.createElement("details");
-        detail.className = `sy-agent-tool-card sy-agent-tool-result${result.isError ? " error" : ""}`;
+        detail.className = `sy-ai-agent-tool-card sy-ai-agent-tool-result${result.isError ? " error" : ""}`;
         const textOut = (result.content ?? [])
             .filter((b: any) => b.type === "text")
             .map((b: any) => b.text)
             .join("\n");
         detail.innerHTML =
             `<summary>${result.isError ? icon("iconTriangleAlert") : CHECK_ICON}` +
-            `<span class="sy-agent-tool-title">工具结果: ${escapeHtml(result.toolName ?? "")}</span></summary>` +
-            `<pre class="sy-agent-tool-detail">${escapeHtml(textOut.slice(0, 2000))}</pre>`;
+            `<span class="sy-ai-agent-tool-title">${t("toolResult", {name: escapeHtml(result.toolName ?? "")})}</span></summary>` +
+            `<pre class="sy-ai-agent-tool-detail">${escapeHtml(textOut.slice(0, 2000))}</pre>`;
         wrap.appendChild(detail);
         return wrap;
     }
 
     private emptyNode(configured: boolean): HTMLElement {
         const empty = document.createElement("div");
-        empty.className = "sy-agent-welcome";
+        empty.className = "sy-ai-agent-welcome";
         const greeting = document.createElement("div");
-        greeting.className = "sy-agent-welcome__greeting";
-        greeting.textContent = "你好,我是 SiYuan Agent";
+        greeting.className = "sy-ai-agent-welcome__greeting";
+        greeting.textContent = t("greeting");
         empty.appendChild(greeting);
         if (configured) {
             const examples = document.createElement("div");
-            examples.className = "sy-agent-welcome__examples";
-            for (const prompt of QUICK_PROMPTS) {
+            examples.className = "sy-ai-agent-welcome__examples";
+            for (const prompt of quickPrompts()) {
                 const item = document.createElement("div");
-                item.className = "sy-agent-welcome__example";
+                item.className = "sy-ai-agent-welcome__example";
                 item.textContent = prompt;
                 item.addEventListener("click", () => {
                     this.setInputText(prompt);
@@ -1524,16 +1524,16 @@ export class ChatPanel {
             empty.appendChild(examples);
         } else {
             const card = document.createElement("div");
-            card.className = "sy-agent-welcome__no-model";
+            card.className = "sy-ai-agent-welcome__no-model";
             const title = document.createElement("div");
-            title.className = "sy-agent-welcome__no-model-title";
-            title.textContent = "尚未配置模型";
+            title.className = "sy-ai-agent-welcome__no-model-title";
+            title.textContent = t("noModelTitle");
             const tip = document.createElement("div");
-            tip.className = "sy-agent-welcome__no-model-tip";
-            tip.textContent = "请先配置模型服务商、API Key 和模型 ID";
+            tip.className = "sy-ai-agent-welcome__no-model-tip";
+            tip.textContent = t("noModelTip");
             const btn = document.createElement("button");
-            btn.className = "b3-button sy-agent-welcome__go-setting";
-            btn.textContent = "前往设置";
+            btn.className = "b3-button sy-ai-agent-welcome__go-setting";
+            btn.textContent = t("goSettings");
             btn.addEventListener("click", () => this.callbacks.onOpenSettings());
             card.append(title, tip, btn);
             empty.appendChild(card);
@@ -1623,19 +1623,19 @@ export class ChatPanel {
         const donutColor = pct !== null && pct >= 80 ? " style=\"stroke: var(--b3-card-error-color, #ea7b6f)\"" : "";
         const subs: string[] = [];
         if (limit > 0) {
-            subs.push(`剩余 ${compactNum(Math.max(limit - used, 0))}`);
+            subs.push(t("tokensRemaining", {n: compactNum(Math.max(limit - used, 0))}));
         }
         const roundParts: string[] = [];
         if (cacheRead > 0) {
-            roundParts.push(`缓存 ${Math.round((cacheRead / used) * 1000) / 10}%`);
+            roundParts.push(t("tokensCache", {n: Math.round((cacheRead / used) * 1000) / 10}));
         }
         if (output > 0) {
-            roundParts.push(`输出 ${compactNum(output)}`);
+            roundParts.push(t("tokensOutput", {n: compactNum(output)}));
         }
         if (roundParts.length > 0) {
-            subs.push(`本轮 ${roundParts.join(" · ")}`);
+            subs.push(t("tokensRound", {detail: roundParts.join(" · ")}));
         }
-        subs.push(`累计 ↑${compactNum(inTokTotal)} ↓${compactNum(outTokTotal)}`);
+        subs.push(t("tokensTotal", {in: compactNum(inTokTotal), out: compactNum(outTokTotal)}));
         const html = '<div class="b3-menu__items">'
             + '<div class="sy-token-popup__hero">'
             + '<div class="sy-token-popup__left">'
@@ -1649,7 +1649,7 @@ export class ChatPanel {
             + `<div class="sy-token-popup__donut-value">${compactNum(used)}${limit > 0 ? " / " + compactNum(limit) : ""}</div>`
             + "</div>"
             + '<div class="sy-token-popup__meta">'
-            + '<div class="sy-token-popup__meta-label">上下文用量</div>'
+            + `<div class="sy-token-popup__meta-label">${t("contextUsage")}</div>`
             + subs.map((s) => `<div class="sy-token-popup__meta-sub">${s}</div>`).join("")
             + "</div>"
             + "</div>"
@@ -1732,11 +1732,11 @@ export class ChatPanel {
         this.sendBtnEl.classList.toggle("fn__none", streaming);
         this.stopBtnEl.classList.toggle("fn__none", !streaming);
         this.sendBtnEl.disabled = !streaming && this.isInputEmpty() && this.attachments.length === 0 && !this.activeSkill;
-        this.modelLabelEl.textContent = modelId || "未配置模型";
+        this.modelLabelEl.textContent = modelId || t("modelNotConfigured");
         this.modelBtnEl.classList.toggle("unconfigured", !configured);
         this.modelBtnEl.setAttribute(
             "aria-label",
-            this.callbacks.getState().models.length > 0 ? "切换模型" : "未配置模型,点击打开设置",
+            this.callbacks.getState().models.length > 0 ? t("switchModel") : t("modelNotConfiguredClick"),
         );
         // 思考强度徽标(原生 ariaLabel 文案)
         const lv = thinking.level ?? "off";
@@ -1779,7 +1779,7 @@ export class ChatPanel {
             let msgIndex = 0;
             // 编辑中的气泡保留既有 DOM,避免重绘覆盖正在输入的内容
             const editingNode = this.editingIndex !== null
-                ? this.messagesEl.querySelector<HTMLElement>(".sy-agent-msg.sy-editing")
+                ? this.messagesEl.querySelector<HTMLElement>(".sy-ai-agent-msg.sy-editing")
                 : null;
             for (const msg of displayMessages) {
                 if (msg.role === "user" && msgIndex === this.editingIndex) {
@@ -1800,8 +1800,8 @@ export class ChatPanel {
             }
             if (streaming && !typing) {
                 const waiting = document.createElement("div");
-                waiting.className = "sy-agent-msg assistant";
-                waiting.innerHTML = `<div class="sy-agent-waiting"><span class="sy-agent-spinner"></span></div>`;
+                waiting.className = "sy-ai-agent-msg assistant";
+                waiting.innerHTML = `<div class="sy-ai-agent-waiting"><span class="sy-ai-agent-spinner"></span></div>`;
                 frag.appendChild(waiting);
             }
         }
@@ -1816,13 +1816,13 @@ export class ChatPanel {
         this.updateScrollBottom();
 
         // 错误横幅(原生 body--error 卡片样式)
-        const bannerId = "sy-agent-error-banner";
+        const bannerId = "sy-ai-agent-error-banner";
         document.getElementById(bannerId)?.remove();
         if (this.lastError && !streaming) {
             const banner = document.createElement("div");
             banner.id = bannerId;
-            banner.className = "sy-agent-error";
-            banner.innerHTML = `${icon("iconTriangleAlert")}<span>上次运行失败: ${escapeHtml(this.lastError)}</span>`;
+            banner.className = "sy-ai-agent-error";
+            banner.innerHTML = `${icon("iconTriangleAlert")}<span>${t("lastRunFailed", {msg: escapeHtml(this.lastError)})}</span>`;
             this.messagesEl.parentElement?.insertBefore(banner, this.messagesEl);
         }
     }

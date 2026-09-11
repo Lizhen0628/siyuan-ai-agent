@@ -10,6 +10,7 @@ import {SiYuanClient} from "./siyuan-client";
 import {findCatalogModel} from "./provider-catalog";
 import {skillsPromptSection} from "./skills";
 import {WRITE_TOOLS, createSiyuanTools} from "./tools";
+import {isZh, t} from "./i18n";
 
 export type AgentApi = "openai-completions" | "openai-responses" | "anthropic-messages" | "google-generative-ai";
 
@@ -77,10 +78,29 @@ export const DEFAULT_SYSTEM_PROMPT = `你是思源笔记中的智能体助手,�
 
 工作准则:
 - 涉及笔记内容的问题,先用 search_notes 检索,再 read_note 阅读,不要凭空编造笔记内容。
+- 涉及数据库(属性视图)的问题,先用 list_databases / get_database / query_database 定位结构与行,再按行/列操作;行的 row_id 来自 query_database。
 - 需要联网获取信息时,先用 web_search 搜索关键词找到相关链接,再用 web_fetch 抓取页面正文细读;把外部资料整理进笔记时注明来源链接。
 - 创建/修改笔记前,先用 list_notebooks 确认笔记本 id;写操作会向用户请求确认,被拒绝时不要重试,改为询问用户意图。
 ${CITATION_PROMPT_LINE}
 - 回答使用简体中文,输出使用 Markdown;列表/标题层级清晰,不要输出嵌套代码块包裹的普通文本。`;
+
+/** 英文默认系统提示词(思源界面语言为英文时使用)。 */
+const CITATION_PROMPT_LINE_EN = "- When mentioning an openable document/block, write the title directly as a Markdown link [title](siyuan://blocks/blockid), e.g. see the introduction of [Chapter 7 LLM Applications](siyuan://blocks/20240101120000-abcdefg); do not repeat the linked text in parentheses next to the original. Block ids must come from tool call results (e.g. block_id/root_id from search_notes); never make them up; do not output plain-text annotations like (hpath: ...).";
+
+const DEFAULT_SYSTEM_PROMPT_EN = `You are an agent assistant inside SiYuan Notes, able to search, read and edit the user's notebook with tools.
+
+Working rules:
+- For questions about note content, search with search_notes first, then read with read_note; never fabricate note content.
+- For questions about databases (attribute views), locate the structure and rows with list_databases / get_database / query_database first, then operate by row/column; row_id comes from query_database.
+- When information from the internet is needed, search with web_search to find relevant links, then read the page content with web_fetch; cite source links when incorporating external material into notes.
+- Before creating/modifying notes, confirm the notebook id with list_notebooks; write operations ask the user for confirmation — if rejected, do not retry, ask the user how to proceed instead.
+${CITATION_PROMPT_LINE_EN}
+- Reply in English and output Markdown; keep list/heading hierarchy clear; do not wrap plain text in nested code blocks.`;
+
+/** 跟随界面语言的默认系统提示词。 */
+export function defaultSystemPrompt(): string {
+    return isZh() ? DEFAULT_SYSTEM_PROMPT : DEFAULT_SYSTEM_PROMPT_EN;
+}
 
 export const DEFAULT_CONFIG: AgentPluginConfig = {
     provider: "custom",
@@ -92,7 +112,8 @@ export const DEFAULT_CONFIG: AgentPluginConfig = {
     contextWindow: 128000,
     maxTokens: 8192,
     confirmWrites: true,
-    systemPrompt: DEFAULT_SYSTEM_PROMPT,
+    // 留空:运行时按界面语言取默认提示词(defaultSystemPrompt)
+    systemPrompt: "",
     thinkingLevel: "off",
     skills: {builtinDisabled: [], userEnabled: []},
     capabilities: {disabled: [], approval: {}},
@@ -182,7 +203,7 @@ export function buildModel(cfg: AgentPluginConfig): Model<Api> {
         id: active.id,
         name: catalog?.name ?? active.id,
         api: cfg.api,
-        provider: cfg.provider === "custom" ? "siyuan-agent" : cfg.provider,
+        provider: cfg.provider === "custom" ? "siyuan-ai-agent" : cfg.provider,
         baseUrl: cfg.baseURL.trim().replace(/\/+$/, ""),
         // 未知(自定义)模型默认放行思考,由服务商自行兜底;详见 modelCapabilities
         reasoning: catalog?.reasoning ?? true,
@@ -203,7 +224,7 @@ export class AgentRunner {
 
     private systemPrompt(): string {
         const custom = this.cfgProvider().systemPrompt?.trim();
-        return (custom || DEFAULT_SYSTEM_PROMPT) + skillsPromptSection(this.cfgProvider());
+        return (custom || defaultSystemPrompt()) + skillsPromptSection(this.cfgProvider());
     }
 
     constructor(
@@ -306,7 +327,7 @@ export class AgentRunner {
                 const tool = ctx.context.tools?.find((t) => t.name === ctx.toolCall.name);
                 const allowed = await this.confirmWrite(ctx.toolCall.name, tool?.label ?? ctx.toolCall.name, ctx.args);
                 if (!allowed) {
-                    return {block: true, reason: "用户拒绝了本次写操作。请询问用户应如何处理,不要自动重试。"};
+                    return {block: true, reason: t("writeRejected")};
                 }
                 return undefined;
             },

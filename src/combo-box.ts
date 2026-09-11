@@ -4,6 +4,7 @@
  * 列表中没有的值直接作为输入生效(自由文本)。
  * 浮层 fixed 定位并挂到 body,避免被设置面板的滚动容器裁剪。
  */
+import {t} from "./i18n";
 
 export interface ComboItem {
     value: string;
@@ -39,7 +40,7 @@ export class ComboBox {
     private active = -1;
 
     constructor(placeholder: string) {
-        this.wrap = el("div", "sy-agent-combo");
+        this.wrap = el("div", "sy-ai-agent-combo");
         this.input = el("input", "b3-text-field") as HTMLInputElement;
         this.input.placeholder = placeholder;
         this.input.spellcheck = false;
@@ -62,7 +63,7 @@ export class ComboBox {
             this.renderItems();
             return;
         }
-        const pop = el("div", "sy-agent-combo-pop");
+        const pop = el("div", "sy-ai-agent-combo-pop");
         document.body.append(pop);
         this.pop = pop;
         this.position();
@@ -129,25 +130,25 @@ export class ComboBox {
         this.active = -1;
         pop.textContent = "";
         if (this.filtered.length === 0) {
-            pop.append(el("div", "sy-agent-combo-empty", "无匹配项,将直接使用输入值"));
+            pop.append(el("div", "sy-ai-agent-combo-empty", t("comboNoMatch")));
             return;
         }
         let lastGroup: string | undefined;
         for (const [idx, it] of this.filtered.entries()) {
             if (idx >= MAX_RENDER) {
-                pop.append(el("div", "sy-agent-combo-label", `… 其余 ${this.filtered.length - MAX_RENDER} 项,继续输入以过滤`));
+                pop.append(el("div", "sy-ai-agent-combo-label", t("comboMore", {count: this.filtered.length - MAX_RENDER})));
                 break;
             }
             if (it.group !== lastGroup) {
                 lastGroup = it.group;
                 if (lastGroup) {
-                    pop.append(el("div", "sy-agent-combo-label", lastGroup));
+                    pop.append(el("div", "sy-ai-agent-combo-label", lastGroup));
                 }
             }
-            const item = el("div", "sy-agent-combo-item");
-            item.append(el("span", "sy-agent-combo-id", it.value));
+            const item = el("div", "sy-ai-agent-combo-item");
+            item.append(el("span", "sy-ai-agent-combo-id", it.value));
             if (it.note) {
-                item.append(el("span", "sy-agent-combo-note", it.note));
+                item.append(el("span", "sy-ai-agent-combo-note", it.note));
             }
             item.addEventListener("mousedown", (e) => {
                 e.preventDefault();
@@ -160,7 +161,7 @@ export class ComboBox {
 
     private setActive(idx: number): void {
         this.active = idx;
-        this.pop?.querySelectorAll(".sy-agent-combo-item").forEach((n, i) => {
+        this.pop?.querySelectorAll(".sy-ai-agent-combo-item").forEach((n, i) => {
             n.classList.toggle("active", i === idx);
         });
     }
@@ -185,7 +186,7 @@ export class ComboBox {
             }
             const delta = e.key === "ArrowDown" ? 1 : -1;
             this.setActive((this.active + delta + len) % len);
-            this.pop?.querySelectorAll(".sy-agent-combo-item")[this.active]
+            this.pop?.querySelectorAll(".sy-ai-agent-combo-item")[this.active]
                 ?.scrollIntoView({block: "nearest"});
         } else if (e.key === "Enter" && this.pop) {
             if (this.active >= 0 && this.filtered[this.active]) {
