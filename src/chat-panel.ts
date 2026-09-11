@@ -242,14 +242,12 @@ function summarizeArgs(args: Record<string, any>): string {
 }
 
 /** 取消息纯文本(用于复制)。 */
-/** assistant 消息的纯文本总长度(打字机进度基准,含思考内容)。 */
+/** assistant 消息的正文文本总长度(打字机进度基准;思考内容不参与门控,流式即显)。 */
 function assistantTextLength(msg: AgentMessage): number {
     let len = 0;
     for (const block of (msg as any).content ?? []) {
         if (block.type === "text" && block.text) {
             len += block.text.length;
-        } else if (block.type === "thinking" && block.thinking) {
-            len += block.thinking.length;
         }
     }
     return len;
@@ -1458,13 +1456,12 @@ export class ChatPanel {
                     }
                 } else if (block.type === "thinking") {
                     const thinkingText = String((block as any).thinking ?? "");
-                    const shown = thinkingText.length > budget ? thinkingText.slice(0, budget) : thinkingText;
-                    budget = Math.max(0, budget - thinkingText.length);
+                    // 思考内容流式即显,不走打字机预算(预算只门控正文;否则长思考会拖住正文出现)
                     // 打字期间展开并显示「思考中」(对齐原生 agentThinking 文案),结束后折叠
                     const typing = revealLen !== undefined;
                     html +=
                         `<details class="sy-ai-agent-thinking"${typing ? " open" : ""}><summary>${typing ? t("thinking") : t("thoughtProcess")}</summary>` +
-                        `<div class="sy-ai-agent-thinking-body">${escapeHtml(shown)}</div></details>`;
+                        `<div class="sy-ai-agent-thinking-body">${escapeHtml(thinkingText)}</div></details>`;
                 } else if (block.type === "toolCall") {
                     const call = block as any;
                     const args = summarizeArgs(call.arguments);
@@ -1809,7 +1806,24 @@ export class ChatPanel {
                 frag.appendChild(waiting);
             }
         }
+        // 重建前记录流式消息思考体的滚动位置(整条消息每帧重建会把 scrollTop 重置回顶部,导致无法下滑查看)
+        const oldThinkingBody = typing
+            ? this.messagesEl.querySelector<HTMLElement>(".sy-ai-agent-msg.assistant:last-child .sy-ai-agent-thinking-body")
+            : null;
+        const thinkingScroll = oldThinkingBody
+            ? {
+                top: oldThinkingBody.scrollTop,
+                atBottom: oldThinkingBody.scrollTop + oldThinkingBody.clientHeight >= oldThinkingBody.scrollHeight - 4,
+            }
+            : null;
         this.messagesEl.replaceChildren(frag);
+        if (typing && thinkingScroll) {
+            const el = this.messagesEl.querySelector<HTMLElement>(".sy-ai-agent-msg.assistant:last-child .sy-ai-agent-thinking-body");
+            if (el) {
+                // 用户贴底时跟随生成内容滚到底;用户上滚阅读时保持原位置
+                el.scrollTop = thinkingScroll.atBottom ? el.scrollHeight : Math.min(thinkingScroll.top, el.scrollHeight);
+            }
+        }
 
         // 滚动到底部(用户未主动上滚时)
         const nearBottom =
