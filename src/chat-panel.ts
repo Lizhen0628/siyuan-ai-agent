@@ -1562,13 +1562,17 @@ export class ChatPanel {
             if (m.role === "assistant" && u) {
                 // pi usage 语义:input 不含已缓存部分,提示词总量 = input + cacheRead + cacheWrite
                 const prompt = (u.input ?? 0) + (u.cacheRead ?? 0) + (u.cacheWrite ?? 0);
-                // 上下文已用/本轮明细:覆盖式取最后一条带 usage 的 assistant 消息(对齐原生 contextTokens 语义)
-                used = prompt;
-                cacheRead = u.cacheRead ?? 0;
-                output = u.output ?? 0;
-                // 累计输入/输出/缓存命中 tokens:全轮次求和
+                const out = u.output ?? 0;
+                // 上下文已用/本轮明细:覆盖式取最后一条带 usage 的 assistant 消息(对齐原生 contextTokens 语义)。
+                // 但运行失败/中止产生的错误消息 usage 全零,覆盖后会把圆环清空隐藏——跳过零用量消息,保留上一轮真实用量
+                if (prompt > 0 || out > 0) {
+                    used = prompt;
+                    cacheRead = u.cacheRead ?? 0;
+                    output = out;
+                }
+                // 累计输入/输出/缓存命中 tokens:全轮次求和(零用量不影响累加)
                 inTokTotal += prompt;
-                outTokTotal += u.output ?? 0;
+                outTokTotal += out;
                 cacheReadTotal += u.cacheRead ?? 0;
             }
         };
